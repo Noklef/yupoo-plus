@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      1.0.0
+// @version      1.0.1
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -460,6 +460,15 @@
 
   const CSS = `
   [data-ygx-hidden] { display: none !important; }
+
+  /* Yupoo caps the album area at a fixed width; let the grid use the viewport. */
+  .categories__box,
+  .categories__box.clearfix {
+    max-width: none !important;
+    width: auto !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
 
   #ygx-root {
     --ygx-bg:        #0f1116;
