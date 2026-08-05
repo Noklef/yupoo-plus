@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.2.0
+// @version      2.3.0
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -26,7 +26,8 @@
     { id: 'showcase',  label: 'Showcase',  min: 320, hint: 'Large cards, hover cycles through album photos.' }
   ];
 
-  const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true };
+  const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true, theme: 'light' };
+  const THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
 
   /* =========================================================================
    * 1. Storage (GM_* with localStorage fallback)
@@ -50,9 +51,11 @@
     design: store.get('design', DEFAULTS.design),
     density: Number(store.get('density', DEFAULTS.density)) || 1,
     enabled: store.get('enabled', DEFAULTS.enabled) !== false,
-    widen: store.get('widen', DEFAULTS.widen) !== false
+    widen: store.get('widen', DEFAULTS.widen) !== false,
+    theme: store.get('theme', DEFAULTS.theme)
   };
   if (!DESIGNS.some(d => d.id === state.design)) state.design = DEFAULTS.design;
+  if (!THEMES.some(t => t.id === state.theme)) state.theme = DEFAULTS.theme;
 
   /* =========================================================================
    * 2. Scraping
@@ -448,6 +451,17 @@
     document.documentElement.toggleAttribute('data-ygx-on', state.enabled);
   }
 
+  function applyTheme() {
+    document.documentElement.setAttribute('data-ygx-theme', state.theme);
+  }
+
+  function setTheme(id) {
+    state.theme = id;
+    store.set('theme', id);
+    applyTheme();
+    syncPanel();
+  }
+
   function setDesign(id) {
     state.design = id;
     store.set('design', id);
@@ -499,6 +513,15 @@
     });
     bodyEl.appendChild(designs);
 
+    const themes = el('div', 'ygx-themes');
+    THEMES.forEach(t => {
+      const b = el('button', 'ygx-theme-btn', t.label);
+      b.dataset.theme = t.id;
+      b.addEventListener('click', () => setTheme(t.id));
+      themes.appendChild(b);
+    });
+    bodyEl.appendChild(themes);
+
     const densRow = el('label', 'ygx-row');
     densRow.appendChild(el('span', 'ygx-row-label', 'Card size'));
     const range = el('input', 'ygx-range');
@@ -542,6 +565,9 @@
     if (!panel) return;
     panel.querySelectorAll('.ygx-design-btn').forEach(b => {
       b.classList.toggle('is-active', b.dataset.design === state.design);
+    });
+    panel.querySelectorAll('.ygx-theme-btn').forEach(b => {
+      b.classList.toggle('is-active', b.dataset.theme === state.theme);
     });
     const t = panel.querySelector('#ygx-toggle');
     if (t) {
@@ -879,6 +905,82 @@
   }
   .ygx-toggle:hover { background: #2b313e; color: #fff; }
   .ygx-toggle.is-off { background: #3fbb85; color: #07130d; border-color: transparent; }
+
+  /* =======================================================================
+   * LIGHT THEME (default) — overrides the dark values above.
+   *
+   * Only surfaces are re-themed. The scrim-backed overlays used by Dense,
+   * Masonry and Showcase keep white text on a dark gradient in both themes,
+   * because that text sits on the photograph, not on the card.
+   * ==================================================================== */
+
+  [data-ygx-theme="light"] .ygx-root {
+    --ygx-card:    #ffffff;
+    --ygx-card-hi: #ffffff;
+    --ygx-line:    #e4e7ec;
+    --ygx-text:    #1c2024;
+    --ygx-muted:   #667085;
+    --ygx-accent:  #0f8f5f;
+  }
+  [data-ygx-theme="light"] .ygx-media,
+  [data-ygx-theme="light"] .ygx-thumb { background: #f2f4f7; }
+  [data-ygx-theme="light"] .ygx-card:hover {
+    border-color: #cfd4dc;
+    box-shadow: 0 12px 28px rgba(16,24,40,.14);
+  }
+  [data-ygx-theme="light"] .ygx-count { background: rgba(255,255,255,.92); color: #344054; }
+  [data-ygx-theme="light"] .ygx-price-float { background: #16a06a; color: #fff; }
+
+  /* Sidebar */
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left {
+    background: #ffffff !important; border-color: #e4e7ec !important;
+    scrollbar-color: #cfd4dc transparent;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left::-webkit-scrollbar-thumb {
+    background: #cfd4dc; border-color: #ffffff;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-header:hover { background: #f4f6f8 !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-header > a { color: #475467 !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover { color: #101828 !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header {
+    background: rgba(22,160,106,.10) !important; box-shadow: inset 2px 0 0 #16a06a;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header > a { color: #0f8f5f !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item { color: #667085 !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item:hover {
+    background: #f4f6f8 !important; color: #101828 !important;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-total,
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination-span { color: #667085 !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination a { color: #475467 !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination a:hover { color: #0f8f5f !important; }
+
+  /* Control panel */
+  [data-ygx-theme="light"] .ygx-panel {
+    background: rgba(255,255,255,.97); border-color: #e4e7ec; color: #1c2024;
+    box-shadow: 0 18px 44px rgba(16,24,40,.18);
+  }
+  [data-ygx-theme="light"] .ygx-panel-head { border-bottom-color: #eaecf0; }
+  [data-ygx-theme="light"] .ygx-icon-btn:hover { background: #f2f4f7; color: #101828; }
+  [data-ygx-theme="light"] .ygx-design-btn { background: #f2f4f7; color: #475467; }
+  [data-ygx-theme="light"] .ygx-design-btn:hover { background: #e9ecf1; color: #101828; }
+  [data-ygx-theme="light"] .ygx-design-btn.is-active { background: #16a06a; color: #fff; }
+  [data-ygx-theme="light"] .ygx-row-label { color: #667085; }
+  [data-ygx-theme="light"] .ygx-range,
+  [data-ygx-theme="light"] .ygx-check input { accent-color: #16a06a; }
+  [data-ygx-theme="light"] .ygx-toggle { background: #f2f4f7; color: #475467; border-color: #e4e7ec; }
+  [data-ygx-theme="light"] .ygx-toggle:hover { background: #e9ecf1; color: #101828; }
+  [data-ygx-theme="light"] .ygx-toggle.is-off { background: #16a06a; color: #fff; border-color: transparent; }
+  [data-ygx-theme="light"] .ygx-theme-btn { background: #f2f4f7; color: #475467; }
+  [data-ygx-theme="light"] .ygx-theme-btn.is-active { background: #16a06a; color: #fff; }
+
+  .ygx-themes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .ygx-theme-btn {
+    all: unset; cursor: pointer; text-align: center; padding: 6px; border-radius: 8px;
+    font-size: 11.5px; font-weight: 600; background: #232833; color: #b9c1d0;
+    transition: background .15s, color .15s;
+  }
+  .ygx-theme-btn.is-active { background: #3fbb85; color: #07130d; }
   `;
 
   function injectCSS() {
@@ -901,6 +1003,7 @@
   function boot() {
     if (!document.querySelector(CARD_SEL)) return false;
     injectCSS();
+    applyTheme();
     applyEnabledAttr();
     applyWiden();
     applyDensity();
