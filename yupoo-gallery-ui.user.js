@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.1.3
+// @version      2.2.0
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -224,7 +224,9 @@
 
   // Grow upward from the anchor until the container would swallow a 2nd card.
   function cardRootFor(anchor) {
-    const known = anchor.closest('.showindex__children, li.album, .album__main');
+    // .categories__children is the /categories listing; .showindex__children
+    // is the album grid and the category_commerce home page.
+    const known = anchor.closest('.showindex__children, .categories__children, li.album, .album__main');
     if (known && known !== anchor) return known;
     let node = anchor;
     let best = anchor;
@@ -437,7 +439,13 @@
   }
 
   function applyWiden() {
-    document.documentElement.toggleAttribute('data-ygx-widen', state.widen);
+    document.documentElement.toggleAttribute('data-ygx-widen', state.widen && state.enabled);
+  }
+
+  // Gates the page-chrome restyle (sidebar, pagination) so that
+  // "Restore original layout" puts everything back, not just the grid.
+  function applyEnabledAttr() {
+    document.documentElement.toggleAttribute('data-ygx-on', state.enabled);
   }
 
   function setDesign(id) {
@@ -451,6 +459,8 @@
     state.enabled = on;
     store.set('enabled', on);
     lastSignature = '';
+    applyEnabledAttr();
+    applyWiden();
     if (on) render(true);
     else teardown();
     syncPanel();
@@ -565,6 +575,88 @@
     margin-right: 0 !important;
   }
   [data-ygx-widen] .show-layout-category__catetitle { padding-left: 24px !important; }
+
+  /* ---- /categories sidebar --------------------------------------------
+   * .categories__box-left > .yupoo-collapse-item
+   *                           > .yupoo-collapse-header > a       (parent)
+   *                           > .yupoo-collapse-content
+   *                               > .yupoo-collapse-content-box
+   *                                   > a.yupoo-collapse-content-item  (child)
+   * -------------------------------------------------------------------- */
+  [data-ygx-on] .categories__box-left {
+    background: #191c24 !important;
+    border: 1px solid #2a2f3b !important;
+    border-radius: 14px !important;
+    padding: 6px !important;
+    overflow: hidden auto !important;
+    position: sticky !important;
+    top: 10px;
+    max-height: calc(100vh - 28px);
+    scrollbar-width: thin;
+    scrollbar-color: #39404f transparent;
+  }
+  [data-ygx-on] .categories__box-left::-webkit-scrollbar { width: 8px; }
+  [data-ygx-on] .categories__box-left::-webkit-scrollbar-thumb {
+    background: #39404f; border-radius: 99px; border: 2px solid #191c24;
+  }
+  [data-ygx-on] .categories__box-left::-webkit-scrollbar-track { background: transparent; }
+
+  [data-ygx-on] .categories__box-left .yupoo-collapse-item {
+    background: transparent !important;
+    border: 0 !important;
+  }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header {
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 8px;
+    transition: background .15s;
+  }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover { background: #232833 !important; }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header > a {
+    display: block;
+    padding: 8px 10px !important;
+    font-size: 12.5px !important;
+    line-height: 1.4 !important;
+    color: #c3cad8 !important;
+    text-decoration: none !important;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover { color: #fff !important; }
+
+  [data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header {
+    background: rgba(63,187,133,.14) !important;
+    box-shadow: inset 2px 0 0 #3fbb85;
+  }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header > a {
+    color: #3fbb85 !important; font-weight: 600 !important;
+  }
+
+  [data-ygx-on] .categories__box-left .yupoo-collapse-content,
+  [data-ygx-on] .categories__box-left .yupoo-collapse-content-box {
+    background: transparent !important; border: 0 !important;
+  }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-content-item {
+    display: block;
+    padding: 6px 10px 6px 22px !important;
+    margin: 1px 0;
+    border-radius: 7px;
+    font-size: 12px !important;
+    color: #8e97a8 !important;
+    text-decoration: none !important;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background .15s, color .15s;
+  }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-content-item:hover {
+    background: #232833 !important; color: #e9ecf3 !important;
+  }
+
+  /* Header row above the grid: total count + pagination */
+  [data-ygx-on] .categories__box-right-total,
+  [data-ygx-on] .categories__box-right-pagination-span {
+    color: #8e97a8 !important; font-size: 12.5px !important;
+  }
+  [data-ygx-on] .categories__box-right-pagination a { color: #c3cad8 !important; }
+  [data-ygx-on] .categories__box-right-pagination a:hover { color: #3fbb85 !important; }
 
   :root { --ygx-min: 260px; --ygx-cols: 6; }
 
@@ -809,6 +901,7 @@
   function boot() {
     if (!document.querySelector(CARD_SEL)) return false;
     injectCSS();
+    applyEnabledAttr();
     applyWiden();
     applyDensity();
     buildPanel();
