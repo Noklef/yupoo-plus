@@ -1,7 +1,7 @@
-// ==UserScript==
+﻿// ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.6.1
+// @version      2.6.2
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -120,7 +120,7 @@
   }
 
   /* ---- Price formats ------------------------------------------------------
-   * Add new formats here — nothing else needs touching.
+   * Add new formats here â€” nothing else needs touching.
    *
    * Each entry's `src` is a regex source string that must capture the bare
    * number in group 1. They're tried in order, first match wins, and the
@@ -136,14 +136,14 @@
   const NOTW = '(?<![A-Za-z0-9])';   // left word boundary, letters included
   const NOTW_R = '(?![A-Za-z0-9])';  // right word boundary
 
-  const PRICE_SYMBOL = '¥';   // what gets rendered on the card, whatever was matched
+  const PRICE_SYMBOL = 'Â¥';   // what gets rendered on the card, whatever was matched
 
   const PRICE_PATTERNS = [
-    { name: '¥259',     src: '[¥￥]\\s*' + NUM },
-    { name: '259¥',     src: NUM + '\\s*[¥￥]' },
+    { name: 'Â¥259',     src: '[Â¥ï¿¥]\\s*' + NUM },
+    { name: '259Â¥',     src: NUM + '\\s*[Â¥ï¿¥]' },
     { name: '259Y',     src: NOTW + NUM2 + '\\s*[Yy]' + NOTW_R },
     { name: 'Y259',     src: NOTW + '[Yy]\\s*' + NUM2 },
-    { name: '259元',    src: NUM + '\\s*元' },
+    { name: '259å…ƒ',    src: NUM + '\\s*å…ƒ' },
     { name: '259RMB',   src: NUM + '\\s*(?:RMB|CNY)' + NOTW_R },
     { name: 'RMB259',   src: '(?:RMB|CNY)\\s*' + NUM }
   ];
@@ -154,7 +154,7 @@
     try { return { name: p.name, re: new RegExp(p.src) }; } catch { return null; }
   }).filter(Boolean);
 
-  // -> { value: '259', matched: '¥259', format: '¥259' } or null
+  // -> { value: '259', matched: 'Â¥259', format: 'Â¥259' } or null
   function parsePrice(text) {
     if (!text) return null;
     for (const p of PRICE_RES) {
@@ -181,7 +181,7 @@
 
   function urlFromNode(node) {
     if (!node || !node.getAttribute) return '';
-    // data-origin-src is frequently present but empty — absUrl('') filters it.
+    // data-origin-src is frequently present but empty â€” absUrl('') filters it.
     for (const a of IMG_ATTRS) {
       const v = absUrl(node.getAttribute(a));
       if (v && !BAD_IMG.test(v)) return v;
@@ -209,13 +209,13 @@
       out.push(u);
     };
 
-    // The cover is the album's first image — size guide or not, it's what shows.
+    // The cover is the album's first image â€” size guide or not, it's what shows.
     //
     // But Yupoo lazy-loads it: for albums below the fold, .album__img still has
     // a placeholder in src and an empty data-origin-src. Because we hide the
     // original grid, Yupoo's loader never scrolls it into view and never fills
     // it in. The first .album3__img thumbnail carries the same photo in its
-    // data-src and is populated server-side, so it's the more reliable read —
+    // data-src and is populated server-side, so it's the more reliable read â€”
     // we take the cover only when it's already a real photo.
     const cover = card.querySelector('.album__imgwrap img, .album__img');
     push(cover ? urlFromNode(cover) : '');
@@ -318,7 +318,7 @@
           // Only the price is parsed out; the rest of the string stays verbatim.
           price: pm ? pm.value : '',
           title: (pm ? rawTitle.replace(pm.matched, '') : rawTitle)
-            .replace(/^[\s\-–—:|,]+/, '')
+            .replace(/^[\s\-â€“â€”:|,]+/, '')
             .replace(/\s+/g, ' ').trim(),
           images,
           count: count > 1 ? String(count) : ''
@@ -384,7 +384,7 @@
     if (item.more) {
       a.classList.add('is-more');
       const box = el('div', 'ygx-more-box');
-      box.appendChild(el('span', 'ygx-more-arrow', '→'));
+      box.appendChild(el('span', 'ygx-more-arrow', 'â†’'));
       box.appendChild(el('span', 'ygx-more-label', item.title));
       if (item.note) box.appendChild(el('span', 'ygx-more-note', item.note));
       const wrap = el('div', 'ygx-media');
@@ -416,7 +416,7 @@
       img.dataset.ygxFirst = first;
 
       // Not every album has a /medium variant, and an occasional cover 404s
-      // outright — walk down to the small original, then to the next photo.
+      // outright â€” walk down to the small original, then to the next photo.
       const chain = [];
       for (const u of [first, item.images[0], item.images[1]]) {
         if (u && !chain.includes(u)) chain.push(u);
@@ -435,7 +435,7 @@
     media.appendChild(el('span', 'ygx-scrim'));
 
     const body = el('div', 'ygx-body');
-    const title = el('div', 'ygx-title', item.title || '—');
+    const title = el('div', 'ygx-title', item.title || 'â€”');
     title.title = item.title;
     body.appendChild(title);
 
@@ -539,10 +539,17 @@
   const NEXT_SEL = 'nav.pagination__main a[title="next page"]';
   const GRID_SEL = '.showindex__parent, .categories__parent';
 
+  // Hard ceiling per page view. Every other guard depends on an event firing;
+  // this one does not, so runaway loading stays bounded whatever else breaks.
+  const MAX_PAGES = 10;
+
   // url: null means "not looked up yet", '' means "no further pages".
   // armed is cleared on each load and set again by scrolling, so a sentinel that
   // stays in view cannot chain through every page unattended.
-  const endless = { url: null, busy: false, armed: true, node: null, io: null, extra: null, seen: new Set() };
+  const endless = {
+    url: null, busy: false, armed: true, paused: false,
+    pages: 0, node: null, io: null, extra: null, seen: new Set()
+  };
 
   function nextPageUrl(doc) {
     const a = doc.querySelector(NEXT_SEL);
@@ -557,7 +564,9 @@
   }
 
   function endlessStatus(text) {
-    if (endless.node) endless.node.firstChild.textContent = text;
+    if (!endless.node) return;
+    endless.node.firstChild.textContent = text;
+    endless.node.classList.toggle('is-paused', endless.paused);
   }
 
   // Kept outside .ygx-root so render()'s teardown can't take it with it.
@@ -566,6 +575,14 @@
     if (!endless.node) {
       endless.node = el('div', 'ygx-endless');
       endless.node.appendChild(el('span', 'ygx-endless-text', ''));
+      // Resuming from the page cap, so it only does anything while paused.
+      endless.node.addEventListener('click', () => {
+        if (!endless.paused) return;
+        endless.paused = false;
+        endless.pages = 0;
+        endless.armed = true;
+        loadNextPage();
+      });
     }
     const roots = document.querySelectorAll('.ygx-root');
     const last = roots[roots.length - 1];
@@ -607,10 +624,10 @@
   }
 
   async function loadNextPage() {
-    if (endless.busy || !endless.url || !state.endless || !state.enabled) return;
+    if (endless.busy || endless.paused || !endless.url || !state.endless || !state.enabled) return;
     endless.busy = true;
     endless.armed = false;
-    endlessStatus('Loading more…');
+    endlessStatus('Loading moreâ€¦');
 
     let doc;
     try {
@@ -649,8 +666,11 @@
 
     endless.url = nextPageUrl(doc);
     endless.busy = false;
+    endless.pages++;
+    endless.paused = endless.pages >= MAX_PAGES && !!endless.url;
     renderAppended();
-    endlessStatus(endless.url ? '' : 'End of results');
+    if (endless.paused) endlessStatus('Paused after ' + endless.pages + ' pages. Click to load more.');
+    else endlessStatus(endless.url ? '' : 'End of results');
   }
 
   function startEndless() {
@@ -679,6 +699,8 @@
     endless.url = null;
     endless.busy = false;
     endless.armed = true;
+    endless.paused = false;
+    endless.pages = 0;
     endless.extra = null;
     endless.seen.clear();
   }
@@ -775,11 +797,11 @@
 
     const head = el('div', 'ygx-panel-head');
     head.appendChild(el('span', 'ygx-panel-title', 'Gallery UI+'));
-    const collapse = el('button', 'ygx-icon-btn', '−');
+    const collapse = el('button', 'ygx-icon-btn', 'âˆ’');
     collapse.title = 'Collapse';
     collapse.addEventListener('click', () => {
       panel.classList.toggle('is-collapsed');
-      collapse.textContent = panel.classList.contains('is-collapsed') ? '+' : '−';
+      collapse.textContent = panel.classList.contains('is-collapsed') ? '+' : 'âˆ’';
     });
     head.appendChild(collapse);
     panel.appendChild(head);
@@ -914,7 +936,7 @@
     scrollbar-color: #39404f transparent;
     /* Reserve the scrollbar track. Without this, a hover state that changes
        content height by a pixel makes the scrollbar appear/disappear and the
-       entire column reflows — which looks like every row jittering at once. */
+       entire column reflows â€” which looks like every row jittering at once. */
     scrollbar-gutter: stable;
   }
   [data-ygx-on] .categories__box-left::-webkit-scrollbar { width: 8px; }
@@ -929,15 +951,15 @@
   }
   /* Yupoo binds expand/collapse to .yupoo-collapse-header and lets the inline
      <a> handle navigation. So the header owns the row padding (and therefore
-     the toggle hit area) and the anchor stays inline at text width — making
+     the toggle hit area) and the anchor stays inline at text width â€” making
      the anchor display:block hands the whole row to the link and there's
      nothing left to click to expand. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-header,
   [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover {
     box-sizing: border-box;
     background: transparent !important;
-    /* Geometry is pinned identically across both states — only the colour
-       differs — so nothing Yupoo's own :hover rules add can shift the row. */
+    /* Geometry is pinned identically across both states â€” only the colour
+       differs â€” so nothing Yupoo's own :hover rules add can shift the row. */
     border: 0 !important;
     outline: 0 !important;
     margin: 0 !important;
@@ -1338,6 +1360,9 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .ygx-endless-text { font-size: 12px; color: #97a0b2; letter-spacing: .2px; }
+  .ygx-endless.is-paused { cursor: pointer; }
+  .ygx-endless.is-paused .ygx-endless-text { color: #3fbb85; }
+  [data-ygx-theme="light"] .ygx-endless.is-paused .ygx-endless-text { color: #0f8f5f; }
 
   /* ---- Control panel --------------------------------------------------- */
   .ygx-panel {
@@ -1353,7 +1378,7 @@
    *
    * The panel is injected into Yupoo's document, which styles bare button
    * elements (.pagination__button, .showlayout__action button, .button...).
-   * "all: unset" only resets the base state — a host rule such as
+   * "all: unset" only resets the base state â€” a host rule such as
    *   button:hover { border: 1px solid; padding: 8px }
    * still wins over .ygx-design-btn:hover, which only declares colours, so
    * their geometry change applies on hover and the button shifts.
@@ -1426,7 +1451,7 @@
   .ygx-toggle.is-off { background: #3fbb85; color: #07130d; border-color: transparent; }
 
   /* =======================================================================
-   * LIGHT THEME (default) — overrides the dark values above.
+   * LIGHT THEME (default) â€” overrides the dark values above.
    *
    * Only surfaces are re-themed. The scrim-backed overlays used by Dense,
    * Masonry and Showcase keep white text on a dark gradient in both themes,
@@ -1567,7 +1592,13 @@
 
     // Each page needs a scroll to re-arm, so a sentinel left in view after a
     // load cannot walk the whole catalogue on its own.
-    window.addEventListener('scroll', () => { endless.armed = true; }, { passive: true });
+    //
+    // Capture on document, not window: Yupoo scrolls <body> as an overflow
+    // container rather than the viewport, and scroll events do not bubble from
+    // an element, so a window listener never fires and endless scroll would stop
+    // dead after one page.
+    document.addEventListener('scroll', () => { endless.armed = true; },
+      { passive: true, capture: true });
 
     const reflow = debounce(() => render(false), 250);
     new MutationObserver((muts) => {
