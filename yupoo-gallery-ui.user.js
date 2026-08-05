@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.1.0
+// @version      2.1.1
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -79,7 +79,12 @@
 
   const CARD_SEL = 'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
   const ALBUM_HREF = /\/albums\/(\d+)/;
-  const BAD_IMG = /(blank|placeholder|loading|spacer|1x1|^data:)/i;
+  // Yupoo's own "not loaded yet" graphics, which must never be cached as a cover.
+  const BAD_IMG = /(blank|placeholder|loading|spacer|1x1|nopic|no_pic|default_|\.svg($|\?)|^data:)/i;
+  // A usable photo is one served by Yupoo's CDN, or at least a real raster file.
+  const GOOD_IMG = /(photo\.yupoo\.com|\.(jpe?g|png|webp|gif)($|\?))/i;
+
+  function isRealPhoto(u) { return !!u && !BAD_IMG.test(u) && GOOD_IMG.test(u); }
 
   /* ---- Price formats ------------------------------------------------------
    * Add new formats here — nothing else needs touching.
@@ -159,11 +164,18 @@
   function readImages(card) {
     const out = [];
     const seen = new Set();
-    const push = (u) => { if (u && !seen.has(u)) { seen.add(u); out.push(u); } };
+    const push = (u) => { if (isRealPhoto(u) && !seen.has(u)) { seen.add(u); out.push(u); } };
 
-    // Cover first — this is the album's first image, size guide or not.
+    // The cover is the album's first image — size guide or not, it's what shows.
+    //
+    // But Yupoo lazy-loads it: for albums below the fold, .album__img still has
+    // a placeholder in src and an empty data-origin-src. Because we hide the
+    // original grid, Yupoo's loader never scrolls it into view and never fills
+    // it in. The first .album3__img thumbnail carries the same photo in its
+    // data-src and is populated server-side, so it's the more reliable read —
+    // we take the cover only when it's already a real photo.
     const cover = card.querySelector('.album__imgwrap img, .album__img');
-    if (cover) push(urlFromNode(cover));
+    push(cover ? urlFromNode(cover) : '');
 
     card.querySelectorAll('.album3__photoswrap img, .album3__img, .album__othersimg')
       .forEach(im => push(urlFromNode(im)));
@@ -304,10 +316,17 @@
     const first = wantBig ? sized(item.images[0], 'medium') : item.images[0];
     img.dataset.ygxSrc = first;
     img.dataset.ygxFirst = first;
+
+    // Not every album has a /medium variant, and an occasional cover 404s
+    // outright — walk down to the small original, then to the next photo.
+    const chain = [];
+    for (const u of [first, item.images[0], item.images[1]]) {
+      if (u && !chain.includes(u)) chain.push(u);
+    }
+    let step = 0;
     img.addEventListener('error', () => {
-      if (img.dataset.ygxFallback) return;
-      img.dataset.ygxFallback = '1';
-      img.src = item.images[0];
+      if (++step >= chain.length) return;
+      img.src = chain[step];
     });
     media.appendChild(img);
     lazyObserver().observe(img);
