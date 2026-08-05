@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.3.1
+// @version      2.3.2
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -620,6 +620,10 @@
     max-height: calc(100vh - 28px);
     scrollbar-width: thin;
     scrollbar-color: #39404f transparent;
+    /* Reserve the scrollbar track. Without this, a hover state that changes
+       content height by a pixel makes the scrollbar appear/disappear and the
+       entire column reflows — which looks like every row jittering at once. */
+    scrollbar-gutter: stable;
   }
   [data-ygx-on] .categories__box-left::-webkit-scrollbar { width: 8px; }
   [data-ygx-on] .categories__box-left::-webkit-scrollbar-thumb {
@@ -636,11 +640,17 @@
      the toggle hit area) and the anchor stays inline at text width — making
      the anchor display:block hands the whole row to the link and there's
      nothing left to click to expand. */
-  [data-ygx-on] .categories__box-left .yupoo-collapse-header {
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header,
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover {
+    box-sizing: border-box;
     background: transparent !important;
+    /* Geometry is pinned identically across both states — only the colour
+       differs — so nothing Yupoo's own :hover rules add can shift the row. */
     border: 0 !important;
-    border-radius: 8px;
+    outline: 0 !important;
+    margin: 0 !important;
     padding: 0 10px !important;
+    border-radius: 8px;
     cursor: pointer;
     transition: background .15s;
   }
@@ -654,6 +664,9 @@
     color: #c3cad8 !important;
     text-decoration: none !important;
     vertical-align: middle;
+    /* Pinned so a hover bolding from Yupoo's stylesheet can't change the
+       text's measured width and shove the ellipsis around. */
+    font-weight: 500 !important;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover { color: #fff !important; }
@@ -664,6 +677,9 @@
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header > a {
     color: #3fbb85 !important; font-weight: 600 !important;
+  }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-content-box {
+    padding: 0 !important; margin: 0 !important;
   }
 
   [data-ygx-on] .categories__box-left .yupoo-collapse-content,
@@ -882,6 +898,50 @@
     font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .ygx-panel * { box-sizing: border-box; }
+
+  /* Host-page armour.
+   *
+   * The panel is injected into Yupoo's document, which styles bare button
+   * elements (.pagination__button, .showlayout__action button, .button...).
+   * "all: unset" only resets the base state — a host rule such as
+   *   button:hover { border: 1px solid; padding: 8px }
+   * still wins over .ygx-design-btn:hover, which only declares colours, so
+   * their geometry change applies on hover and the button shifts.
+   *
+   * Pinning every box-model property across all states makes that structurally
+   * impossible, whatever their stylesheet turns out to say. */
+  .ygx-panel button,
+  .ygx-panel button:hover,
+  .ygx-panel button:focus,
+  .ygx-panel button:active,
+  .ygx-panel button:focus-visible {
+    box-sizing: border-box !important;
+    margin: 0 !important;
+    border: 0 !important;
+    outline: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    line-height: 1.4 !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+    text-decoration: none !important;
+    white-space: nowrap !important;
+    vertical-align: middle !important;
+    font-family: inherit !important;
+    float: none !important;
+    position: static !important;
+  }
+  .ygx-panel .ygx-design-btn,
+  .ygx-panel .ygx-design-btn:hover,
+  .ygx-panel .ygx-theme-btn,
+  .ygx-panel .ygx-theme-btn:hover { padding: 7px 6px !important; font-weight: 600 !important; }
+  .ygx-panel .ygx-toggle,
+  .ygx-panel .ygx-toggle:hover { padding: 7px !important; font-weight: 600 !important; }
+  .ygx-panel .ygx-icon-btn,
+  .ygx-panel .ygx-icon-btn:hover { padding: 0 !important; width: 22px !important; height: 22px !important; }
   .ygx-panel-head {
     display: flex; align-items: center; justify-content: space-between;
     padding: 9px 10px 9px 12px; border-bottom: 1px solid #262b36;
