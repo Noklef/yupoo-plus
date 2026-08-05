@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.3.2
+// @version      2.4.0
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -659,14 +659,15 @@
     display: inline-block;
     max-width: 100%;
     padding: 8px 0 !important;
-    font-size: 12.5px !important;
+    /* Parents read as headings: larger, heavier, brighter than their children. */
+    font-size: 13px !important;
     line-height: 1.4 !important;
-    color: #c3cad8 !important;
+    color: #dfe4ee !important;
     text-decoration: none !important;
     vertical-align: middle;
     /* Pinned so a hover bolding from Yupoo's stylesheet can't change the
        text's measured width and shove the ellipsis around. */
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover { color: #fff !important; }
@@ -678,8 +679,12 @@
   [data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header > a {
     color: #3fbb85 !important; font-weight: 600 !important;
   }
+  /* Children hang off a guide rail rather than relying on indent alone, so the
+     nesting is legible at a glance instead of being inferred from padding. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-box {
-    padding: 0 !important; margin: 0 !important;
+    margin: 2px 0 6px 17px !important;
+    padding: 0 0 0 10px !important;
+    border-left: 1px solid #2a2f3b !important;
   }
 
   [data-ygx-on] .categories__box-left .yupoo-collapse-content,
@@ -688,10 +693,11 @@
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-item {
     display: block;
-    padding: 6px 10px 6px 22px !important;
+    padding: 6px 8px !important;
     margin: 1px 0;
     border-radius: 7px;
     font-size: 12px !important;
+    font-weight: 400 !important;
     color: #8e97a8 !important;
     text-decoration: none !important;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -699,6 +705,24 @@
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-item:hover {
     background: #232833 !important; color: #e9ecf3 !important;
+  }
+  /* The active child link carries .yupoo-collapse-content-item-selected. */
+  [data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected,
+  [data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected:hover {
+    color: #3fbb85 !important;
+    font-weight: 600 !important;
+    background: rgba(63,187,133,.12) !important;
+    box-shadow: inset 2px 0 0 #3fbb85;
+  }
+  /* Parent of the open branch, so the trail to the current page reads. */
+  [data-ygx-on] .categories__box-left .yupoo-collapse-item-active > .yupoo-collapse-header > a {
+    color: #e9ecf3 !important;
+  }
+
+  /* Reserve room for Yupoo's chevron so the ellipsis stops before it instead
+     of running underneath. .yupoo-collapse-item-single has no chevron. */
+  [data-ygx-on] .categories__box-left .yupoo-collapse-item:not(.yupoo-collapse-item-single) > .yupoo-collapse-header > a {
+    max-width: calc(100% - 20px);
   }
 
   /* Header row above the grid: total count + pagination */
@@ -1015,9 +1039,18 @@
     background: rgba(22,160,106,.10) !important; box-shadow: inset 2px 0 0 #16a06a;
   }
   [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header > a { color: #0f8f5f !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-header > a { color: #101828 !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-item-active > .yupoo-collapse-header > a { color: #101828 !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-box { border-left-color: #e4e7ec !important; }
   [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item { color: #667085 !important; }
   [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item:hover {
     background: #f4f6f8 !important; color: #101828 !important;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected,
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected:hover {
+    color: #0f8f5f !important;
+    background: rgba(22,160,106,.10) !important;
+    box-shadow: inset 2px 0 0 #16a06a;
   }
   [data-ygx-theme="light"][data-ygx-on] .categories__box-right-total,
   [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination-span { color: #667085 !important; }
