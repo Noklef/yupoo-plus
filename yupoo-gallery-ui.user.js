@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      1.0.1
-// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Dark theme, price badge, lazy loading, density control.
+// @version      2.0.0
+// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -19,14 +19,14 @@
    * ====================================================================== */
 
   const DESIGNS = [
-    { id: 'editorial', label: 'Editorial',  min: 260, hint: 'Big 4:5 image, floating price pill, 2-line title.' },
-    { id: 'dense',     label: 'Dense',      min: 150, hint: 'Square tiles, many per row, title on hover.' },
-    { id: 'info',      label: 'Info card',  min: 230, hint: 'Image + meta row + persistent thumbnail strip.' },
-    { id: 'masonry',   label: 'Masonry',    min: 250, hint: 'Native aspect ratios in columns, caption scrim.' },
-    { id: 'showcase',  label: 'Showcase',   min: 320, hint: 'Large cards, hover cycles through album photos.' }
+    { id: 'editorial', label: 'Editorial', min: 260, hint: 'Big 4:5 image, floating price pill, 2-line title.' },
+    { id: 'dense',     label: 'Dense',     min: 150, hint: 'Square tiles, many per row, title on hover.' },
+    { id: 'info',      label: 'Info card', min: 230, hint: 'Image + meta row + persistent thumbnail strip.' },
+    { id: 'masonry',   label: 'Masonry',   min: 250, hint: 'Native aspect ratios in columns, caption scrim.' },
+    { id: 'showcase',  label: 'Showcase',  min: 320, hint: 'Large cards, hover cycles through album photos.' }
   ];
 
-  const DEFAULTS = { design: 'editorial', density: 1, enabled: true };
+  const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true };
 
   /* =========================================================================
    * 1. Storage (GM_* with localStorage fallback)
@@ -49,18 +49,35 @@
   const state = {
     design: store.get('design', DEFAULTS.design),
     density: Number(store.get('density', DEFAULTS.density)) || 1,
-    enabled: store.get('enabled', DEFAULTS.enabled) !== false
+    enabled: store.get('enabled', DEFAULTS.enabled) !== false,
+    widen: store.get('widen', DEFAULTS.widen) !== false
   };
   if (!DESIGNS.some(d => d.id === state.design)) state.design = DEFAULTS.design;
 
   /* =========================================================================
-   * 2. Scraping — build a model from whatever markup Yupoo is serving
+   * 2. Scraping
    *
-   * Yupoo changes class names between shop templates, so nothing here relies
-   * on a specific class. We find album links, grow a container around each
-   * one until it would swallow a second album, and read the pieces out.
+   * Verified against Yupoo's "category_commerce" template:
+   *
+   *   main.showindex__gallerycardwrap
+   *     div.show-layout-category__catewrap          <- section (may be absent)
+   *       a.show-layout-category__catetitle         <- heading, left in place
+   *       div.showindex__parent                     <- GRID
+   *         div.showindex__children                 <- card wrapper
+   *           a.album3__main[data-album-id][title][href="/albums/<id>?..."]
+   *             div.album3__loading                 <- skeleton, ignored
+   *             div.album__imgwrap
+   *               img.album__img.autocover          <- COVER (first image)
+   *               div.album__photonumber            <- photo count
+   *             div.album3__photoswrap
+   *               div.album3__squareWrap > img.album3__img[data-src]   <- thumbs
+   *             div.album3__title                   <- title
+   *
+   * Older templates use album__main / album__title; both are handled, and
+   * there's a generic fallback for anything else.
    * ====================================================================== */
 
+  const CARD_SEL = 'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
   const ALBUM_HREF = /\/albums\/(\d+)/;
   const PRICE_RE = /[¥￥]\s*([0-9][0-9,]*(?:\.[0-9]+)?)/;
   const BAD_IMG = /(blank|placeholder|loading|spacer|1x1|^data:)/i;
@@ -68,22 +85,24 @@
   function absUrl(u) {
     if (!u) return '';
     u = u.trim();
+    if (!u) return '';
     if (u.startsWith('//')) return location.protocol + u;
     if (u.startsWith('/')) return location.origin + u;
     return u;
   }
 
-  // Yupoo serves /small.jpg /medium.jpg /big.jpg variants off the same path.
+  // Yupoo serves /small /medium /big variants of the same path.
   function sized(url, want) {
     if (!url) return url;
     return url.replace(/\/(small|medium|big)(\.[a-z]{3,4})(\?.*)?$/i, '/' + want + '$2$3');
   }
 
   function urlFromNode(el) {
-    const attrs = ['data-origin-src', 'data-original', 'data-src', 'data-lazy', 'src'];
-    for (const a of attrs) {
-      const v = el.getAttribute && el.getAttribute(a);
-      if (v && !BAD_IMG.test(v)) return absUrl(v);
+    if (!el || !el.getAttribute) return '';
+    // data-origin-src is frequently present but empty — absUrl('') filters it.
+    for (const a of ['data-origin-src', 'data-original', 'data-src', 'data-lazy', 'src']) {
+      const v = absUrl(el.getAttribute(a));
+      if (v && !BAD_IMG.test(v)) return v;
     }
     const bg = el.style && el.style.backgroundImage;
     if (bg) {
@@ -93,140 +112,113 @@
     return '';
   }
 
-  // All image URLs inside the card, in DOM order. [0] is the album's first
-  // image — shown as-is, size guide or not.
-  function collectImages(card) {
-    const nodes = card.querySelectorAll(
-      'img, [data-src], [data-origin-src], [data-original], [style*="background-image"]'
-    );
+  function readImages(card) {
     const out = [];
     const seen = new Set();
-    for (const n of nodes) {
-      const u = urlFromNode(n);
-      if (!u || seen.has(u)) continue;
-      seen.add(u);
-      out.push(u);
-    }
+    const push = (u) => { if (u && !seen.has(u)) { seen.add(u); out.push(u); } };
+
+    // Cover first — this is the album's first image, size guide or not.
+    const cover = card.querySelector('.album__imgwrap img, .album__img');
+    if (cover) push(urlFromNode(cover));
+
+    card.querySelectorAll('.album3__photoswrap img, .album3__img, .album__othersimg')
+      .forEach(im => push(urlFromNode(im)));
+
+    if (out.length) return out;
+
+    // Generic fallback for unknown templates: every image-ish node in DOM order,
+    // skipping the loading skeleton.
+    card.querySelectorAll('img, [data-src], [data-origin-src], [style*="background-image"]')
+      .forEach(n => {
+        if (n.closest('.album3__loading')) return;
+        push(urlFromNode(n));
+      });
     return out;
   }
 
-  // Grow upward from the anchor until the container would contain a 2nd album.
+  function readTitle(card) {
+    const t = card.getAttribute('title');
+    if (t && t.trim()) return t.trim().replace(/\s+/g, ' ');
+    const node = card.querySelector('.album3__title, .album__title, [class*="title"]');
+    if (node) {
+      const v = (node.getAttribute('title') || node.textContent || '').trim();
+      if (v) return v.replace(/\s+/g, ' ');
+    }
+    return (card.textContent || '').trim().replace(/\s+/g, ' ');
+  }
+
+  function readCount(card) {
+    const node = card.querySelector('.album__photonumber, [class*="photonumber"], [class*="imgnum"]');
+    if (node) {
+      const m = (node.textContent || '').match(/\d+/);
+      if (m) return Number(m[0]);
+    }
+    return 0;
+  }
+
+  // Grow upward from the anchor until the container would swallow a 2nd card.
   function cardRootFor(anchor) {
+    const known = anchor.closest('.showindex__children, li.album, .album__main');
+    if (known && known !== anchor) return known;
     let node = anchor;
     let best = anchor;
-    for (let i = 0; i < 7 && node.parentElement; i++) {
+    for (let i = 0; i < 6 && node.parentElement; i++) {
       node = node.parentElement;
       if (node === document.body) break;
-      const ids = new Set();
-      node.querySelectorAll('a[href*="/albums/"]').forEach(a => {
-        const m = (a.getAttribute('href') || '').match(ALBUM_HREF);
-        if (m) ids.add(m[1]);
-      });
-      if (ids.size > 1) break;
+      if (node.querySelectorAll(CARD_SEL).length > 1) break;
       best = node;
     }
     return best;
   }
 
-  function readTitle(card, anchor) {
-    const direct =
-      card.querySelector('.album__title, .text__overflow, [class*="title"]') ||
-      (anchor.getAttribute('title') ? anchor : null);
-    let t = '';
-    if (direct) t = (direct.getAttribute('title') || direct.textContent || '').trim();
-    if (!t) t = (anchor.getAttribute('title') || anchor.textContent || '').trim();
-    if (!t) t = (card.textContent || '').trim();
-    return t.replace(/\s+/g, ' ').trim();
-  }
-
-  function readCount(card, imgCount) {
-    const known = card.querySelector('.album__imgnum, [class*="imgnum"], [class*="num"], [class*="count"]');
-    if (known) {
-      const m = (known.textContent || '').match(/\d+/);
-      if (m) return m[0];
-    }
-    for (const el of card.querySelectorAll('span, i, em, div')) {
-      if (el.children.length) continue;
-      const txt = (el.textContent || '').trim();
-      if (/^\d{1,4}$/.test(txt)) return txt;
-    }
-    return imgCount > 1 ? String(imgCount) : '';
-  }
-
-  function scrape() {
-    const anchors = Array.from(document.querySelectorAll('a[href*="/albums/"]'));
-    const byId = new Map();
+  // Returns [{ grid: <original grid element>, items: [...] }]
+  function scrapeGroups() {
+    const anchors = Array.from(document.querySelectorAll(CARD_SEL));
+    const groups = new Map();
 
     for (const a of anchors) {
+      if (a.closest('.ygx-root')) continue;      // our own output
+      if (a.closest('.pagination__main')) continue;
       const href = a.getAttribute('href') || '';
-      const m = href.match(ALBUM_HREF);
-      if (!m) continue;
-      if (a.closest('#ygx-root')) continue; // our own output
-      const id = m[1];
-      if (byId.has(id)) continue;
+      if (!ALBUM_HREF.test(href)) continue;
 
       const card = cardRootFor(a);
-      const imgs = collectImages(card);
-      if (!imgs.length) continue;
+      const grid = card.parentElement;
+      if (!grid || grid === document.body) continue;
 
-      const rawTitle = readTitle(card, a);
+      const images = readImages(card);
+      if (!images.length) continue;
+
+      const rawTitle = readTitle(card);
       const pm = rawTitle.match(PRICE_RE);
+      const count = readCount(card);
 
-      byId.set(id, {
-        id,
+      const item = {
         href: a.href,
         target: a.getAttribute('target') || '',
-        // "Only price, else nothing" — pull the ¥ figure out, leave the rest verbatim.
+        // Only the price is parsed out; the rest of the string stays verbatim.
         price: pm ? pm[1] : '',
         title: (pm ? rawTitle.replace(pm[0], '') : rawTitle).replace(/\s+/g, ' ').trim(),
-        images: imgs,
-        count: readCount(card, imgs.length),
-        node: card
-      });
+        images,
+        count: count > 1 ? String(count) : ''
+      };
+
+      if (!groups.has(grid)) groups.set(grid, []);
+      groups.get(grid).push(item);
     }
-    return Array.from(byId.values());
+
+    return Array.from(groups.entries())
+      .filter(([, items]) => items.length)
+      .map(([grid, items]) => ({ grid, items }));
   }
 
   /* =========================================================================
    * 3. Rendering
    * ====================================================================== */
 
-  let rootEl = null;
-  let gridEl = null;
-  let hiddenOriginals = [];
-  let lastSignature = '';
+  const mounted = new Map();   // original grid element -> our .ygx-root element
   let io = null;
-
-  function ensureRoot(sampleNode) {
-    if (rootEl && rootEl.isConnected) return rootEl;
-    rootEl = document.createElement('div');
-    rootEl.id = 'ygx-root';
-    gridEl = document.createElement('div');
-    gridEl.id = 'ygx-grid';
-    rootEl.appendChild(gridEl);
-
-    // Drop it where the original grid lived so page chrome stays put.
-    let host = sampleNode && sampleNode.parentElement;
-    if (host && host !== document.body) host.parentElement.insertBefore(rootEl, host);
-    else document.body.appendChild(rootEl);
-    return rootEl;
-  }
-
-  function hideOriginals(items) {
-    const hosts = new Set();
-    items.forEach(it => { if (it.node && it.node.parentElement) hosts.add(it.node.parentElement); });
-    hiddenOriginals = [];
-    hosts.forEach(h => {
-      if (h.closest('#ygx-root')) return;
-      h.setAttribute('data-ygx-hidden', '1');
-      hiddenOriginals.push(h);
-    });
-  }
-
-  function showOriginals() {
-    hiddenOriginals.forEach(h => h.removeAttribute('data-ygx-hidden'));
-    hiddenOriginals = [];
-  }
+  let lastSignature = '';
 
   function lazyObserver() {
     if (io) return io;
@@ -256,20 +248,17 @@
     const a = el('a', 'ygx-card');
     a.href = item.href;
     if (item.target) a.target = item.target;
-    a.setAttribute('data-id', item.id);
 
     const media = el('div', 'ygx-media');
     const img = el('img', 'ygx-img');
     img.alt = item.title;
-    img.loading = 'lazy';
     img.decoding = 'async';
-    // Bigger designs pull the medium variant; dense grids stay on small.
+
     const wantBig = design === 'editorial' || design === 'showcase' || design === 'masonry';
     const first = wantBig ? sized(item.images[0], 'medium') : item.images[0];
     img.dataset.ygxSrc = first;
     img.dataset.ygxFirst = first;
-    // Fall back to the original URL if the upsized variant 404s.
-    img.addEventListener('error', function onErr() {
+    img.addEventListener('error', () => {
       if (img.dataset.ygxFallback) return;
       img.dataset.ygxFallback = '1';
       img.src = item.images[0];
@@ -289,17 +278,15 @@
     const meta = el('div', 'ygx-meta');
     if (item.price) meta.appendChild(el('span', 'ygx-price', '¥' + item.price));
     if (item.count) meta.appendChild(el('span', 'ygx-chip', item.count + ' photos'));
-    body.appendChild(meta);
+    if (meta.children.length) body.appendChild(meta);
 
     a.appendChild(media);
     a.appendChild(body);
 
-    // Info design keeps a small persistent thumbnail strip.
     if (design === 'info' && item.images.length > 1) {
       const strip = el('div', 'ygx-strip');
       item.images.slice(1, 5).forEach(u => {
         const t = el('img', 'ygx-thumb');
-        t.loading = 'lazy';
         t.dataset.ygxSrc = u;
         lazyObserver().observe(t);
         strip.appendChild(t);
@@ -307,7 +294,6 @@
       a.appendChild(strip);
     }
 
-    // Showcase cycles the album's photos on hover; leaving restores image #1.
     if (design === 'showcase' && item.images.length > 1) {
       let timer = null;
       let i = 0;
@@ -328,24 +314,41 @@
     return a;
   }
 
+  function teardown() {
+    mounted.forEach((root, grid) => {
+      root.remove();
+      grid.removeAttribute('data-ygx-hidden');
+    });
+    mounted.clear();
+    if (io) { io.disconnect(); io = null; }
+  }
+
   function render(force) {
     if (!state.enabled) return;
-    const items = scrape();
-    if (items.length < 2) return;
+    const groups = scrapeGroups();
+    if (!groups.length) return;
 
-    const sig = state.design + '|' + items.map(i => i.id).join(',');
+    const sig = state.design + '::' + groups.map(g => g.items.length + ':' + g.items.map(i => i.href).join(',')).join('|');
     if (!force && sig === lastSignature) return;
     lastSignature = sig;
 
-    ensureRoot(items[0].node);
-    hideOriginals(items);
+    teardown();
 
-    if (io) { io.disconnect(); io = null; }
-    gridEl.textContent = '';
-    gridEl.setAttribute('data-design', state.design);
-    const frag = document.createDocumentFragment();
-    items.forEach(it => frag.appendChild(buildCard(it, state.design)));
-    gridEl.appendChild(frag);
+    for (const { grid, items } of groups) {
+      const root = el('div', 'ygx-root');
+      const gridEl = el('div', 'ygx-grid');
+      gridEl.setAttribute('data-design', state.design);
+      const frag = document.createDocumentFragment();
+      items.forEach(it => frag.appendChild(buildCard(it, state.design)));
+      gridEl.appendChild(frag);
+      root.appendChild(gridEl);
+
+      // Sit exactly where the original grid sits, so category headings,
+      // pagination and the rest of the page keep their position.
+      grid.parentElement.insertBefore(root, grid);
+      grid.setAttribute('data-ygx-hidden', '1');
+      mounted.set(grid, root);
+    }
 
     applyDensity();
   }
@@ -353,8 +356,13 @@
   function applyDensity() {
     const d = DESIGNS.find(x => x.id === state.design) || DESIGNS[0];
     const min = Math.round(d.min * state.density);
-    rootEl.style.setProperty('--ygx-min', min + 'px');
-    rootEl.style.setProperty('--ygx-cols', String(Math.max(1, Math.round(6 / state.density))));
+    const root = document.documentElement;
+    root.style.setProperty('--ygx-min', min + 'px');
+    root.style.setProperty('--ygx-cols', String(Math.max(1, Math.round(6 / state.density))));
+  }
+
+  function applyWiden() {
+    document.documentElement.toggleAttribute('data-ygx-widen', state.widen);
   }
 
   function setDesign(id) {
@@ -367,15 +375,9 @@
   function setEnabled(on) {
     state.enabled = on;
     store.set('enabled', on);
-    if (on) {
-      lastSignature = '';
-      render(true);
-    } else {
-      showOriginals();
-      if (rootEl) rootEl.remove();
-      rootEl = null;
-      lastSignature = '';
-    }
+    lastSignature = '';
+    if (on) render(true);
+    else teardown();
     syncPanel();
   }
 
@@ -428,6 +430,19 @@
     densRow.appendChild(range);
     bodyEl.appendChild(densRow);
 
+    const wideRow = el('label', 'ygx-row ygx-check');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = state.widen;
+    cb.addEventListener('change', () => {
+      state.widen = cb.checked;
+      store.set('widen', state.widen);
+      applyWiden();
+    });
+    wideRow.appendChild(cb);
+    wideRow.appendChild(el('span', 'ygx-row-label', 'Full-width page'));
+    bodyEl.appendChild(wideRow);
+
     const toggle = el('button', 'ygx-toggle', '');
     toggle.id = 'ygx-toggle';
     toggle.addEventListener('click', () => setEnabled(!state.enabled));
@@ -461,35 +476,40 @@
   const CSS = `
   [data-ygx-hidden] { display: none !important; }
 
-  /* Yupoo caps the album area at a fixed width; let the grid use the viewport. */
-  .categories__box,
-  .categories__box.clearfix {
+  /* Yupoo caps the album area at a fixed width. */
+  [data-ygx-widen] .showindex__gallerycardwrap,
+  [data-ygx-widen] .show-layout-category__catewrap,
+  [data-ygx-widen] .categories__box,
+  [data-ygx-widen] .categories__box.clearfix,
+  [data-ygx-widen] .showalbum__children,
+  [data-ygx-widen] .broadcastbar__wrap,
+  [data-ygx-widen] .pagination__main {
     max-width: none !important;
     width: auto !important;
     margin-left: 0 !important;
     margin-right: 0 !important;
   }
+  [data-ygx-widen] .show-layout-category__catetitle { padding-left: 24px !important; }
 
-  #ygx-root {
-    --ygx-bg:        #0f1116;
-    --ygx-card:      #191c24;
-    --ygx-card-hi:   #212530;
-    --ygx-line:      #2a2f3b;
-    --ygx-text:      #e9ecf3;
-    --ygx-muted:     #97a0b2;
-    --ygx-accent:    #3fbb85;
-    --ygx-min:       260px;
-    --ygx-cols:      6;
+  :root { --ygx-min: 260px; --ygx-cols: 6; }
+
+  .ygx-root {
+    --ygx-card:    #191c24;
+    --ygx-card-hi: #212530;
+    --ygx-line:    #2a2f3b;
+    --ygx-text:    #e9ecf3;
+    --ygx-muted:   #97a0b2;
+    --ygx-accent:  #3fbb85;
     box-sizing: border-box;
     width: 100%;
-    padding: 20px 24px 60px;
+    padding: 8px 24px 28px;
     color: var(--ygx-text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
                  "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
   }
-  #ygx-root *, #ygx-root *::before, #ygx-root *::after { box-sizing: border-box; }
+  .ygx-root *, .ygx-root *::before, .ygx-root *::after { box-sizing: border-box; }
 
-  #ygx-grid { display: grid; gap: 18px; }
+  .ygx-grid { display: grid; gap: 18px; }
 
   .ygx-card {
     position: relative;
@@ -511,19 +531,10 @@
     box-shadow: 0 14px 34px rgba(0,0,0,.45);
   }
 
-  .ygx-media {
-    position: relative;
-    overflow: hidden;
-    background: #0b0d12;
-    flex: 0 0 auto;
-  }
+  .ygx-media { position: relative; overflow: hidden; background: #0b0d12; flex: 0 0 auto; }
   .ygx-img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0;
-    transition: opacity .35s ease, transform .5s cubic-bezier(.2,.7,.3,1);
+    display: block; width: 100%; height: 100%; object-fit: cover;
+    opacity: 0; transition: opacity .35s ease, transform .5s cubic-bezier(.2,.7,.3,1);
   }
   .ygx-img.is-loaded { opacity: 1; }
   .ygx-card:hover .ygx-img { transform: scale(1.05); }
@@ -538,16 +549,14 @@
     position: absolute; right: 8px; bottom: 8px;
     padding: 2px 7px; border-radius: 999px;
     font-size: 11px; font-weight: 600; line-height: 1.5;
-    color: #dfe4ee; background: rgba(10,12,18,.72);
-    backdrop-filter: blur(6px); z-index: 3;
+    color: #dfe4ee; background: rgba(10,12,18,.72); z-index: 3;
   }
   .ygx-price-float {
     position: absolute; left: 8px; top: 8px;
     padding: 4px 10px; border-radius: 999px;
     font-size: 12px; font-weight: 700; letter-spacing: .2px;
     color: #06120c; background: var(--ygx-accent);
-    box-shadow: 0 2px 10px rgba(0,0,0,.35); z-index: 3;
-    display: none;
+    box-shadow: 0 2px 10px rgba(0,0,0,.35); z-index: 3; display: none;
   }
 
   .ygx-body { padding: 11px 12px 13px; display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; }
@@ -558,10 +567,7 @@
   }
   .ygx-meta { display: flex; align-items: center; gap: 8px; margin-top: auto; }
   .ygx-price { font-size: 14px; font-weight: 700; color: var(--ygx-accent); letter-spacing: .2px; }
-  .ygx-chip {
-    font-size: 11px; color: var(--ygx-muted);
-    border: 1px solid var(--ygx-line); border-radius: 6px; padding: 2px 6px;
-  }
+  .ygx-chip { font-size: 11px; color: var(--ygx-muted); border: 1px solid var(--ygx-line); border-radius: 6px; padding: 2px 6px; }
 
   .ygx-strip { display: flex; gap: 4px; padding: 0 12px 12px; }
   .ygx-thumb {
@@ -571,116 +577,94 @@
   .ygx-card:hover .ygx-thumb { opacity: 1; }
 
   /* ---- 1. Editorial ---------------------------------------------------- */
-  #ygx-grid[data-design="editorial"] {
-    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
-    gap: 22px;
+  .ygx-grid[data-design="editorial"] {
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr)); gap: 22px;
   }
-  #ygx-grid[data-design="editorial"] .ygx-media { aspect-ratio: 4/5; }
-  #ygx-grid[data-design="editorial"] .ygx-price-float { display: block; }
-  #ygx-grid[data-design="editorial"] .ygx-price { display: none; }
-  #ygx-grid[data-design="editorial"] .ygx-card { border-radius: 16px; }
-  #ygx-grid[data-design="editorial"] .ygx-title { font-size: 13.5px; }
+  .ygx-grid[data-design="editorial"] .ygx-media { aspect-ratio: 4/5; }
+  .ygx-grid[data-design="editorial"] .ygx-price-float { display: block; }
+  .ygx-grid[data-design="editorial"] .ygx-price { display: none; }
+  .ygx-grid[data-design="editorial"] .ygx-card { border-radius: 16px; }
 
   /* ---- 2. Dense -------------------------------------------------------- */
-  #ygx-grid[data-design="dense"] {
-    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
-    gap: 10px;
+  .ygx-grid[data-design="dense"] {
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr)); gap: 10px;
   }
-  #ygx-grid[data-design="dense"] .ygx-card { border-radius: 10px; }
-  #ygx-grid[data-design="dense"] .ygx-media { aspect-ratio: 1/1; }
-  #ygx-grid[data-design="dense"] .ygx-price-float {
-    display: block; left: 7px; top: auto; bottom: 7px;
-    font-size: 11px; padding: 2px 8px;
+  .ygx-grid[data-design="dense"] .ygx-card { border-radius: 10px; }
+  .ygx-grid[data-design="dense"] .ygx-media { aspect-ratio: 1/1; }
+  .ygx-grid[data-design="dense"] .ygx-price-float {
+    display: block; left: 7px; top: auto; bottom: 7px; font-size: 11px; padding: 2px 8px;
   }
-  #ygx-grid[data-design="dense"] .ygx-body {
-    position: absolute; inset: auto 0 0 0; z-index: 4;
-    padding: 26px 10px 10px;
+  .ygx-grid[data-design="dense"] .ygx-body {
+    position: absolute; inset: auto 0 0 0; z-index: 4; padding: 26px 10px 10px;
     background: linear-gradient(to top, rgba(6,8,12,.95) 40%, rgba(6,8,12,0));
-    opacity: 0; transform: translateY(6px);
-    transition: opacity .2s, transform .2s;
+    opacity: 0; transform: translateY(6px); transition: opacity .2s, transform .2s;
   }
-  #ygx-grid[data-design="dense"] .ygx-card:hover .ygx-body { opacity: 1; transform: none; }
-  #ygx-grid[data-design="dense"] .ygx-card:hover .ygx-price-float { opacity: 0; }
-  #ygx-grid[data-design="dense"] .ygx-title { font-size: 11.5px; -webkit-line-clamp: 3; }
-  #ygx-grid[data-design="dense"] .ygx-meta { display: none; }
-  #ygx-grid[data-design="dense"] .ygx-card:hover .ygx-img { transform: scale(1.08); }
+  .ygx-grid[data-design="dense"] .ygx-card:hover .ygx-body { opacity: 1; transform: none; }
+  .ygx-grid[data-design="dense"] .ygx-card:hover .ygx-price-float { opacity: 0; }
+  .ygx-grid[data-design="dense"] .ygx-title { font-size: 11.5px; -webkit-line-clamp: 3; }
+  .ygx-grid[data-design="dense"] .ygx-meta { display: none; }
+  .ygx-grid[data-design="dense"] .ygx-card:hover .ygx-img { transform: scale(1.08); }
 
   /* ---- 3. Info card ---------------------------------------------------- */
-  #ygx-grid[data-design="info"] {
-    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
-    gap: 16px;
+  .ygx-grid[data-design="info"] {
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr)); gap: 16px;
   }
-  #ygx-grid[data-design="info"] .ygx-media { aspect-ratio: 1/1; border-bottom: 1px solid var(--ygx-line); }
-  #ygx-grid[data-design="info"] .ygx-body { padding: 12px 12px 10px; }
-  #ygx-grid[data-design="info"] .ygx-title { min-height: 2.9em; }
-  #ygx-grid[data-design="info"] .ygx-meta {
-    padding-top: 9px; border-top: 1px dashed var(--ygx-line);
-    justify-content: space-between;
+  .ygx-grid[data-design="info"] .ygx-media { aspect-ratio: 1/1; border-bottom: 1px solid var(--ygx-line); }
+  .ygx-grid[data-design="info"] .ygx-body { padding: 12px 12px 10px; }
+  .ygx-grid[data-design="info"] .ygx-title { min-height: 2.9em; }
+  .ygx-grid[data-design="info"] .ygx-meta {
+    padding-top: 9px; border-top: 1px dashed var(--ygx-line); justify-content: space-between;
   }
 
   /* ---- 4. Masonry ------------------------------------------------------ */
-  #ygx-grid[data-design="masonry"] {
-    display: block;
-    column-count: var(--ygx-cols);
-    column-gap: 16px;
+  .ygx-grid[data-design="masonry"] { display: block; column-count: var(--ygx-cols); column-gap: 16px; }
+  @media (max-width: 1500px) { .ygx-grid[data-design="masonry"] { column-count: 5; } }
+  @media (max-width: 1200px) { .ygx-grid[data-design="masonry"] { column-count: 4; } }
+  @media (max-width: 900px)  { .ygx-grid[data-design="masonry"] { column-count: 3; } }
+  @media (max-width: 620px)  { .ygx-grid[data-design="masonry"] { column-count: 2; } }
+  .ygx-grid[data-design="masonry"] .ygx-card {
+    break-inside: avoid; display: inline-block; width: 100%; margin: 0 0 16px; border-radius: 12px;
   }
-  @media (max-width: 1500px) { #ygx-grid[data-design="masonry"] { column-count: 5; } }
-  @media (max-width: 1200px) { #ygx-grid[data-design="masonry"] { column-count: 4; } }
-  @media (max-width: 900px)  { #ygx-grid[data-design="masonry"] { column-count: 3; } }
-  @media (max-width: 620px)  { #ygx-grid[data-design="masonry"] { column-count: 2; } }
-  #ygx-grid[data-design="masonry"] .ygx-card {
-    break-inside: avoid; display: inline-block; width: 100%;
-    margin: 0 0 16px; border-radius: 12px;
+  .ygx-grid[data-design="masonry"] .ygx-media { aspect-ratio: auto; }
+  .ygx-grid[data-design="masonry"] .ygx-img { height: auto; min-height: 90px; }
+  .ygx-grid[data-design="masonry"] .ygx-scrim { opacity: 1; }
+  .ygx-grid[data-design="masonry"] .ygx-body {
+    position: absolute; inset: auto 0 0 0; z-index: 4; padding: 10px 12px 11px; gap: 4px;
   }
-  #ygx-grid[data-design="masonry"] .ygx-media { aspect-ratio: auto; }
-  #ygx-grid[data-design="masonry"] .ygx-img { height: auto; min-height: 90px; }
-  #ygx-grid[data-design="masonry"] .ygx-scrim { opacity: 1; }
-  #ygx-grid[data-design="masonry"] .ygx-body {
-    position: absolute; inset: auto 0 0 0; z-index: 4;
-    padding: 10px 12px 11px; gap: 4px;
+  .ygx-grid[data-design="masonry"] .ygx-title {
+    -webkit-line-clamp: 1; font-size: 12px; color: #f2f5fa; text-shadow: 0 1px 3px rgba(0,0,0,.7);
   }
-  #ygx-grid[data-design="masonry"] .ygx-title {
-    -webkit-line-clamp: 1; font-size: 12px; color: #f2f5fa;
-    text-shadow: 0 1px 3px rgba(0,0,0,.7);
-  }
-  #ygx-grid[data-design="masonry"] .ygx-chip { display: none; }
-  #ygx-grid[data-design="masonry"] .ygx-price { font-size: 13px; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+  .ygx-grid[data-design="masonry"] .ygx-chip { display: none; }
+  .ygx-grid[data-design="masonry"] .ygx-price { font-size: 13px; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
 
   /* ---- 5. Showcase ----------------------------------------------------- */
-  #ygx-grid[data-design="showcase"] {
-    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
-    gap: 24px;
+  .ygx-grid[data-design="showcase"] {
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr)); gap: 24px;
   }
-  #ygx-grid[data-design="showcase"] .ygx-card { border-radius: 18px; }
-  #ygx-grid[data-design="showcase"] .ygx-media { aspect-ratio: 3/4; }
-  #ygx-grid[data-design="showcase"] .ygx-scrim { opacity: 1; height: 62%; }
-  #ygx-grid[data-design="showcase"] .ygx-body {
-    position: absolute; inset: auto 0 0 0; z-index: 4;
-    padding: 14px 16px 16px; gap: 6px;
+  .ygx-grid[data-design="showcase"] .ygx-card { border-radius: 18px; }
+  .ygx-grid[data-design="showcase"] .ygx-media { aspect-ratio: 3/4; }
+  .ygx-grid[data-design="showcase"] .ygx-scrim { opacity: 1; height: 62%; }
+  .ygx-grid[data-design="showcase"] .ygx-body {
+    position: absolute; inset: auto 0 0 0; z-index: 4; padding: 14px 16px 16px; gap: 6px;
   }
-  #ygx-grid[data-design="showcase"] .ygx-title {
-    font-size: 14px; color: #fff; -webkit-line-clamp: 2;
-    text-shadow: 0 1px 4px rgba(0,0,0,.75);
+  .ygx-grid[data-design="showcase"] .ygx-title {
+    font-size: 14px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.75);
   }
-  #ygx-grid[data-design="showcase"] .ygx-price {
-    font-size: 18px; font-weight: 800; color: #fff;
-    text-shadow: 0 1px 4px rgba(0,0,0,.75);
+  .ygx-grid[data-design="showcase"] .ygx-price {
+    font-size: 18px; font-weight: 800; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.75);
   }
-  #ygx-grid[data-design="showcase"] .ygx-chip {
+  .ygx-grid[data-design="showcase"] .ygx-chip {
     background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.18); color: #dfe5f0;
   }
-  #ygx-grid[data-design="showcase"] .ygx-count { top: 10px; right: 10px; bottom: auto; }
-  #ygx-grid[data-design="showcase"] .ygx-card:hover .ygx-img { transform: none; }
+  .ygx-grid[data-design="showcase"] .ygx-count { top: 10px; right: 10px; bottom: auto; }
+  .ygx-grid[data-design="showcase"] .ygx-card:hover .ygx-img { transform: none; }
 
   /* ---- Control panel --------------------------------------------------- */
   .ygx-panel {
     position: fixed; right: 18px; bottom: 18px; z-index: 2147483000;
     width: 246px; border-radius: 14px; overflow: hidden;
-    background: rgba(20,23,30,.94);
-    border: 1px solid #2c313d;
-    box-shadow: 0 18px 44px rgba(0,0,0,.55);
-    backdrop-filter: blur(10px);
-    color: #e9ecf3;
+    background: rgba(20,23,30,.96); border: 1px solid #2c313d;
+    box-shadow: 0 18px 44px rgba(0,0,0,.55); color: #e9ecf3;
     font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .ygx-panel * { box-sizing: border-box; }
@@ -695,33 +679,31 @@
   }
   .ygx-icon-btn:hover { background: #262b36; color: #fff; }
   .ygx-panel.is-collapsed .ygx-panel-body { display: none; }
-  .ygx-panel-body { padding: 11px 12px 13px; display: flex; flex-direction: column; gap: 11px; }
+  .ygx-panel-body { padding: 11px 12px 13px; display: flex; flex-direction: column; gap: 10px; }
   .ygx-designs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .ygx-design-btn {
-    all: unset; cursor: pointer; text-align: center;
-    padding: 7px 6px; border-radius: 8px; font-size: 11.5px; font-weight: 600;
-    background: #232833; color: #b9c1d0; border: 1px solid transparent;
-    transition: background .15s, color .15s, border-color .15s;
+    all: unset; cursor: pointer; text-align: center; padding: 7px 6px; border-radius: 8px;
+    font-size: 11.5px; font-weight: 600; background: #232833; color: #b9c1d0;
+    transition: background .15s, color .15s;
   }
   .ygx-design-btn:hover { background: #2b313e; color: #fff; }
   .ygx-design-btn.is-active { background: #3fbb85; color: #07130d; }
   .ygx-designs .ygx-design-btn:nth-child(5) { grid-column: 1 / -1; }
   .ygx-row { display: flex; align-items: center; gap: 9px; }
+  .ygx-check { cursor: pointer; }
+  .ygx-check input { accent-color: #3fbb85; margin: 0; }
   .ygx-row-label { color: #97a0b2; font-size: 11px; white-space: nowrap; }
   .ygx-range { flex: 1; accent-color: #3fbb85; }
   .ygx-toggle {
-    all: unset; cursor: pointer; text-align: center; padding: 7px;
-    border-radius: 8px; font-size: 11.5px; font-weight: 600;
-    background: #232833; color: #97a0b2; border: 1px solid #2c313d;
+    all: unset; cursor: pointer; text-align: center; padding: 7px; border-radius: 8px;
+    font-size: 11.5px; font-weight: 600; background: #232833; color: #97a0b2; border: 1px solid #2c313d;
   }
   .ygx-toggle:hover { background: #2b313e; color: #fff; }
   .ygx-toggle.is-off { background: #3fbb85; color: #07130d; border-color: transparent; }
   `;
 
   function injectCSS() {
-    try {
-      if (typeof GM_addStyle === 'function') { GM_addStyle(CSS); return; }
-    } catch (e) { /* noop */ }
+    try { if (typeof GM_addStyle === 'function') { GM_addStyle(CSS); return; } } catch (e) { /* noop */ }
     const s = document.createElement('style');
     s.id = 'ygx-style';
     s.textContent = CSS;
@@ -738,21 +720,22 @@
   }
 
   function boot() {
-    if (!document.querySelector('a[href*="/albums/"]')) return false;
+    if (!document.querySelector(CARD_SEL)) return false;
     injectCSS();
+    applyWiden();
+    applyDensity();
     buildPanel();
     render(true);
 
-    // Yupoo paginates and lazy-injects; re-render when the album set changes.
-    const reflow = debounce(() => render(false), 220);
+    const reflow = debounce(() => render(false), 250);
     new MutationObserver((muts) => {
       for (const m of muts) {
-        if (m.target && m.target.closest && m.target.closest('#ygx-root')) continue;
+        const t = m.target;
+        if (t && t.closest && (t.closest('.ygx-root') || t.closest('.ygx-panel'))) continue;
         if (m.addedNodes.length || m.removedNodes.length) { reflow(); return; }
       }
     }).observe(document.body, { childList: true, subtree: true });
 
-    // SPA-ish navigation
     let lastUrl = location.href;
     setInterval(() => {
       if (location.href !== lastUrl) {
@@ -768,7 +751,7 @@
   let tries = 0;
   (function waitForAlbums() {
     if (boot()) return;
-    if (++tries > 40) return; // ~10s
+    if (++tries > 40) return;  // ~10s
     setTimeout(waitForAlbums, 250);
   })();
 })();
