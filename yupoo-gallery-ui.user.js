@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.1.1
+// @version      2.1.2
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -164,7 +164,17 @@
   function readImages(card) {
     const out = [];
     const seen = new Set();
-    const push = (u) => { if (isRealPhoto(u) && !seen.has(u)) { seen.add(u); out.push(u); } };
+    // Dedupe on the photo, not the URL: the cover and the first thumbnail are
+    // the same picture at different sizes (/small vs /medium), so comparing raw
+    // URLs lets a 1-photo album render its one image twice.
+    const key = (u) => u.replace(/\/(small|medium|big)(\.[a-z]{3,4})($|\?)/i, '/*');
+    const push = (u) => {
+      if (!isRealPhoto(u)) return;
+      const k = key(u);
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push(u);
+    };
 
     // The cover is the album's first image — size guide or not, it's what shows.
     //
@@ -634,9 +644,13 @@
   .ygx-price { font-size: 14px; font-weight: 700; color: var(--ygx-accent); letter-spacing: .2px; }
   .ygx-chip { font-size: 11px; color: var(--ygx-muted); border: 1px solid var(--ygx-line); border-radius: 6px; padding: 2px 6px; }
 
+  /* Thumbs hold a fixed quarter-width slot. With width:100% a 1- or 2-photo
+     album stretched them to full card width and they rendered as a second
+     giant image under the cover. */
   .ygx-strip { display: flex; gap: 4px; padding: 0 12px 12px; }
   .ygx-thumb {
-    width: 100%; aspect-ratio: 1/1; object-fit: cover;
+    flex: 0 0 calc(25% - 3px); max-width: calc(25% - 3px);
+    aspect-ratio: 1/1; object-fit: cover;
     border-radius: 5px; background: #0b0d12; opacity: .78; transition: opacity .2s;
   }
   .ygx-card:hover .ygx-thumb { opacity: 1; }
