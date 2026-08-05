@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.3.0
+// @version      2.3.1
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -631,20 +631,29 @@
     background: transparent !important;
     border: 0 !important;
   }
+  /* Yupoo binds expand/collapse to .yupoo-collapse-header and lets the inline
+     <a> handle navigation. So the header owns the row padding (and therefore
+     the toggle hit area) and the anchor stays inline at text width — making
+     the anchor display:block hands the whole row to the link and there's
+     nothing left to click to expand. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-header {
     background: transparent !important;
     border: 0 !important;
     border-radius: 8px;
+    padding: 0 10px !important;
+    cursor: pointer;
     transition: background .15s;
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover { background: #232833 !important; }
   [data-ygx-on] .categories__box-left .yupoo-collapse-header > a {
-    display: block;
-    padding: 8px 10px !important;
+    display: inline-block;
+    max-width: 100%;
+    padding: 8px 0 !important;
     font-size: 12.5px !important;
     line-height: 1.4 !important;
     color: #c3cad8 !important;
     text-decoration: none !important;
+    vertical-align: middle;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover { color: #fff !important; }
