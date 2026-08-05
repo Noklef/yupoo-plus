@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.6.0
+// @version      2.6.1
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -492,7 +492,7 @@
     const groups = scrapeGroups();
     if (!groups.length) return;
 
-    const sig = state.design + '::' + groups.map(g => g.items.length + ':' + g.items.map(i => i.href).join(',')).join('|');
+    const sig = signature(groups);
     if (!force && sig === lastSignature) return;
     lastSignature = sig;
 
@@ -515,6 +515,14 @@
     }
 
     applyDensity();
+    // Roots are inserted before their hidden grid, so a rebuild would otherwise
+    // leave the sentinel stranded above the gallery and permanently in view.
+    placeSentinel();
+  }
+
+  function signature(groups) {
+    return state.design + '::' +
+      groups.map(g => g.items.length + ':' + g.items.map(i => i.href).join(',')).join('|');
   }
 
   /* =========================================================================
@@ -532,7 +540,9 @@
   const GRID_SEL = '.showindex__parent, .categories__parent';
 
   // url: null means "not looked up yet", '' means "no further pages".
-  const endless = { url: null, busy: false, node: null, io: null, seen: new Set() };
+  // armed is cleared on each load and set again by scrolling, so a sentinel that
+  // stays in view cannot chain through every page unattended.
+  const endless = { url: null, busy: false, armed: true, node: null, io: null, extra: null, seen: new Set() };
 
   function nextPageUrl(doc) {
     const a = doc.querySelector(NEXT_SEL);
@@ -552,6 +562,7 @@
 
   // Kept outside .ygx-root so render()'s teardown can't take it with it.
   function placeSentinel() {
+    if (!state.endless || !state.enabled) return;
     if (!endless.node) {
       endless.node = el('div', 'ygx-endless');
       endless.node.appendChild(el('span', 'ygx-endless-text', ''));
@@ -559,11 +570,16 @@
     const roots = document.querySelectorAll('.ygx-root');
     const last = roots[roots.length - 1];
     if (!last) return;
-    last.parentElement.insertBefore(endless.node, last.nextSibling);
+    // Anchor to the hidden grid, not the root: roots are inserted before their
+    // grid, so anchoring to the root puts the sentinel in the slot the next
+    // rebuild inserts into, hoisting it above the cards.
+    let anchor = last;
+    mounted.forEach((root, grid) => { if (root === last) anchor = grid; });
+    anchor.parentElement.insertBefore(endless.node, anchor.nextSibling);
     if (!endless.io) {
       endless.io = new IntersectionObserver(es => {
-        if (es.some(e => e.isIntersecting)) loadNextPage();
-      }, { rootMargin: '800px 0px' });
+        if (endless.armed && es.some(e => e.isIntersecting)) loadNextPage();
+      }, { rootMargin: '400px 0px' });
     }
     // Re-observing forces a fresh callback: staying in view is not a change, so
     // without this the second page never triggers a third.
@@ -571,9 +587,29 @@
     endless.io.observe(endless.node);
   }
 
+  // Appends only what the fetch added. A full render(true) per page rebuilt every
+  // card and re-decoded every image, which is what froze the tab.
+  function renderAppended() {
+    const groups = scrapeGroups();
+    if (!groups.length) return;
+    for (const { grid, items } of groups) {
+      const root = mounted.get(grid);
+      if (!root) { lastSignature = ''; render(true); return; }
+      const gridEl = root.firstElementChild;
+      const have = gridEl.children.length;
+      if (items.length <= have) continue;
+      const frag = document.createDocumentFragment();
+      items.slice(have).forEach(it => frag.appendChild(buildCard(it, state.design)));
+      gridEl.appendChild(frag);
+    }
+    lastSignature = signature(groups);
+    placeSentinel();
+  }
+
   async function loadNextPage() {
     if (endless.busy || !endless.url || !state.endless || !state.enabled) return;
     endless.busy = true;
+    endless.armed = false;
     endlessStatus('Loading more…');
 
     let doc;
@@ -590,8 +626,8 @@
     const live = Array.from(document.querySelectorAll(GRID_SEL)).filter(g => !g.closest('.ygx-root'));
     // One live grid is a flat list, so the next page continues it. Several means
     // sections, and the next page is a flat list that must not land under the
-    // last heading, so it gets a container of its own.
-    const target = live.length === 1 ? live[0] : null;
+    // last heading, so every later page shares one container of its own.
+    let target = live.length === 1 ? live[0] : endless.extra;
 
     for (const g of Array.from(doc.querySelectorAll(GRID_SEL))) {
       const kids = Array.from(g.children).filter(k => {
@@ -602,20 +638,18 @@
       });
       if (!kids.length) continue;
 
-      const dest = target || g.cloneNode(false);
-      kids.forEach(k => dest.appendChild(document.adoptNode(k)));
       if (!target) {
+        target = g.cloneNode(false);
+        endless.extra = target;
         const last = live[live.length - 1];
-        last.parentElement.insertBefore(dest, last.nextSibling);
-        live.push(dest);
+        last.parentElement.insertBefore(target, last.nextSibling);
       }
+      kids.forEach(k => target.appendChild(document.adoptNode(k)));
     }
 
     endless.url = nextPageUrl(doc);
     endless.busy = false;
-    lastSignature = '';
-    render(true);
-    placeSentinel();
+    renderAppended();
     endlessStatus(endless.url ? '' : 'End of results');
   }
 
@@ -628,6 +662,7 @@
       });
     }
     if (endless.url === null) endless.url = nextPageUrl(document);
+    endless.armed = true;
     placeSentinel();
     endlessStatus(endless.url ? '' : 'End of results');
   }
@@ -643,6 +678,8 @@
     stopEndless();
     endless.url = null;
     endless.busy = false;
+    endless.armed = true;
+    endless.extra = null;
     endless.seen.clear();
   }
 
@@ -1527,6 +1564,10 @@
     render(true);
     syncSubcats();
     startEndless();
+
+    // Each page needs a scroll to re-arm, so a sentinel left in view after a
+    // load cannot walk the whole catalogue on its own.
+    window.addEventListener('scroll', () => { endless.armed = true; }, { passive: true });
 
     const reflow = debounce(() => render(false), 250);
     new MutationObserver((muts) => {
