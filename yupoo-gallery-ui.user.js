@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.4.1
+// @version      2.4.2
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -35,15 +35,15 @@
 
   const store = {
     get(k, d) {
-      try { if (typeof GM_getValue === 'function') return GM_getValue(k, d); } catch (e) { /* noop */ }
+      try { if (typeof GM_getValue === 'function') return GM_getValue(k, d); } catch { /* noop */ }
       try {
         const v = localStorage.getItem('ygx:' + k);
         return v === null ? d : JSON.parse(v);
-      } catch (e) { return d; }
+      } catch { return d; }
     },
     set(k, v) {
-      try { if (typeof GM_setValue === 'function') { GM_setValue(k, v); return; } } catch (e) { /* noop */ }
-      try { localStorage.setItem('ygx:' + k, JSON.stringify(v)); } catch (e) { /* noop */ }
+      try { if (typeof GM_setValue === 'function') { GM_setValue(k, v); return; } } catch { /* noop */ }
+      try { localStorage.setItem('ygx:' + k, JSON.stringify(v)); } catch { /* noop */ }
     }
   };
 
@@ -121,7 +121,7 @@
   // Compiled defensively: lookbehind is unsupported on some older engines, and
   // an uncompilable literal would take the whole userscript down at parse time.
   const PRICE_RES = PRICE_PATTERNS.map(p => {
-    try { return { name: p.name, re: new RegExp(p.src) }; } catch (e) { return null; }
+    try { return { name: p.name, re: new RegExp(p.src) }; } catch { return null; }
   }).filter(Boolean);
 
   // -> { value: '259', matched: '¥259', format: '¥259' } or null
@@ -149,14 +149,14 @@
     return url.replace(/\/(small|medium|big)(\.[a-z]{3,4})(\?.*)?$/i, '/' + want + '$2$3');
   }
 
-  function urlFromNode(el) {
-    if (!el || !el.getAttribute) return '';
+  function urlFromNode(node) {
+    if (!node || !node.getAttribute) return '';
     // data-origin-src is frequently present but empty — absUrl('') filters it.
     for (const a of ['data-origin-src', 'data-original', 'data-src', 'data-lazy', 'src']) {
-      const v = absUrl(el.getAttribute(a));
+      const v = absUrl(node.getAttribute(a));
       if (v && !BAD_IMG.test(v)) return v;
     }
-    const bg = el.style && el.style.backgroundImage;
+    const bg = node.style && node.style.backgroundImage;
     if (bg) {
       const m = bg.match(/url\(["']?(.*?)["']?\)/);
       if (m && m[1] && !BAD_IMG.test(m[1])) return absUrl(m[1]);
@@ -1090,7 +1090,7 @@
   `;
 
   function injectCSS() {
-    try { if (typeof GM_addStyle === 'function') { GM_addStyle(CSS); return; } } catch (e) { /* noop */ }
+    try { if (typeof GM_addStyle === 'function') { GM_addStyle(CSS); return; } } catch { /* noop */ }
     const s = document.createElement('style');
     s.id = 'ygx-style';
     s.textContent = CSS;
