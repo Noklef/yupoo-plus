@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.4.2
+// @version      2.5.0
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -26,7 +26,7 @@
     { id: 'showcase',  label: 'Showcase',  min: 320, hint: 'Large cards, hover cycles through album photos.' }
   ];
 
-  const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true, theme: 'light' };
+  const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true, theme: 'light', more: true };
   const THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
 
   /* =========================================================================
@@ -52,7 +52,8 @@
     density: Number(store.get('density', DEFAULTS.density)) || 1,
     enabled: store.get('enabled', DEFAULTS.enabled) !== false,
     widen: store.get('widen', DEFAULTS.widen) !== false,
-    theme: store.get('theme', DEFAULTS.theme)
+    theme: store.get('theme', DEFAULTS.theme),
+    more: store.get('more', DEFAULTS.more) !== false
   };
   if (!DESIGNS.some(d => d.id === state.design)) state.design = DEFAULTS.design;
   if (!THEMES.some(t => t.id === state.theme)) state.theme = DEFAULTS.theme;
@@ -76,18 +77,51 @@
    *               div.album3__squareWrap > img.album3__img[data-src]   <- thumbs
    *             div.album3__title                   <- title
    *
+   * The last child of a grid may instead be a "more" tile, which links to the
+   * collection rather than an album and carries no title node:
+   *
+   *         div.showindex__children
+   *           a.album3__main[title="more"][href="/collections/<id>"]
+   *             div.album__imgwrap > img.album__img   <- cover, as normal
+   *             div.album3__showmore
+   *               p.album3__more                      <- "more"
+   *               p                                   <- "1298 items"
+   *
    * Older templates use album__main / album__title; both are handled, and
    * there's a generic fallback for anything else.
    * ====================================================================== */
 
   const CARD_SEL = 'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
   const ALBUM_HREF = /\/albums\/(\d+)/;
+  const COLLECTION_HREF = /\/collections\/(\d+)/;
   // Yupoo's own "not loaded yet" graphics, which must never be cached as a cover.
   const BAD_IMG = /(blank|placeholder|loading|spacer|1x1|nopic|no_pic|default_|\.svg($|\?)|^data:)/i;
   // A usable photo is one served by Yupoo's CDN, or at least a real raster file.
   const GOOD_IMG = /(photo\.yupoo\.com|\.(jpe?g|png|webp|gif)($|\?))/i;
+  // The graphic Yupoo substitutes when an album contains no photos at all. It
+  // is a real .png on a real CDN, so GOOD_IMG accepts it and BAD_IMG doesn't
+  // catch it — without this it gets cached as a cover and renders as a grey
+  // icon stretched edge-to-edge across the card.
+  const PLACEHOLDER_IMG = /im_photo_album/i;
 
-  function isRealPhoto(u) { return !!u && !BAD_IMG.test(u) && GOOD_IMG.test(u); }
+  // Read in this order: the lazy-load attributes hold the real photo, and `src`
+  // is often still a 1x1 data: URI. Yupoo also serves a /square variant, but
+  // only ever in `src`, so preferring data-src is what keeps it out of results.
+  const IMG_ATTRS = ['data-origin-src', 'data-original', 'data-src', 'data-lazy', 'src'];
+
+  function isRealPhoto(u) {
+    return !!u && !BAD_IMG.test(u) && !PLACEHOLDER_IMG.test(u) && GOOD_IMG.test(u);
+  }
+
+  // Those albums are still worth a card — they have a title and usually a price
+  // — so they're flagged and given an empty state rather than dropped. Both
+  // halves of the test matter: requiring a zero photo count as well keeps a real
+  // cover that happens to match the filename from being read as empty.
+  function isEmptyAlbum(card) {
+    if (readCount(card) !== 0) return false;
+    return Array.from(card.querySelectorAll('img')).some(n =>
+      IMG_ATTRS.some(attr => PLACEHOLDER_IMG.test(n.getAttribute(attr) || '')));
+  }
 
   /* ---- Price formats ------------------------------------------------------
    * Add new formats here — nothing else needs touching.
@@ -152,7 +186,7 @@
   function urlFromNode(node) {
     if (!node || !node.getAttribute) return '';
     // data-origin-src is frequently present but empty — absUrl('') filters it.
-    for (const a of ['data-origin-src', 'data-original', 'data-src', 'data-lazy', 'src']) {
+    for (const a of IMG_ATTRS) {
       const v = absUrl(node.getAttribute(a));
       if (v && !BAD_IMG.test(v)) return v;
     }
@@ -251,30 +285,52 @@
       if (a.closest('.ygx-root')) continue;      // our own output
       if (a.closest('.pagination__main')) continue;
       const href = a.getAttribute('href') || '';
-      if (!ALBUM_HREF.test(href)) continue;
+      // A "more" tile links to the collection, not an album. It's identified by
+      // both the href and the marker node so that a plain collection link
+      // elsewhere on the page can't be mistaken for one.
+      const showmore = COLLECTION_HREF.test(href) ? a.querySelector('.album3__showmore') : null;
+      if (!showmore && !ALBUM_HREF.test(href)) continue;
 
       const card = cardRootFor(a);
       const grid = card.parentElement;
       if (!grid || grid === document.body) continue;
 
-      const images = readImages(card);
-      if (!images.length) continue;
+      const base = { href: a.href, target: a.getAttribute('target') || '' };
+      let item;
 
-      const rawTitle = readTitle(card);
-      const pm = parsePrice(rawTitle);
-      const count = readCount(card);
+      if (showmore) {
+        if (!state.more) continue;
+        // <p class="album3__more">more</p><p>1298 items</p>
+        const ps = showmore.querySelectorAll('p');
+        item = Object.assign(base, {
+          more: true,
+          title: (showmore.querySelector('.album3__more') || ps[0] || {}).textContent || 'More',
+          note: ps.length > 1 ? (ps[ps.length - 1].textContent || '').trim() : '',
+          images: [], price: '', count: ''
+        });
+        item.title = item.title.trim() || 'More';
+      } else {
+        const images = readImages(card);
+        // No images and no placeholder means the scrape missed, not an empty
+        // album — skip rather than render a card we know nothing about.
+        const empty = !images.length && isEmptyAlbum(card);
+        if (!images.length && !empty) continue;
 
-      const item = {
-        href: a.href,
-        target: a.getAttribute('target') || '',
-        // Only the price is parsed out; the rest of the string stays verbatim.
-        price: pm ? pm.value : '',
-        title: (pm ? rawTitle.replace(pm.matched, '') : rawTitle)
-          .replace(/^[\s\-–—:|,]+/, '')
-          .replace(/\s+/g, ' ').trim(),
-        images,
-        count: count > 1 ? String(count) : ''
-      };
+        const rawTitle = readTitle(card);
+        const pm = parsePrice(rawTitle);
+        const count = readCount(card);
+
+        item = Object.assign(base, {
+          empty,
+          // Only the price is parsed out; the rest of the string stays verbatim.
+          price: pm ? pm.value : '',
+          title: (pm ? rawTitle.replace(pm.matched, '') : rawTitle)
+            .replace(/^[\s\-–—:|,]+/, '')
+            .replace(/\s+/g, ' ').trim(),
+          images,
+          count: count > 1 ? String(count) : ''
+        });
+      }
 
       if (!groups.has(grid)) groups.set(grid, []);
       groups.get(grid).push(item);
@@ -317,34 +373,72 @@
     return n;
   }
 
+  // Static markup, no interpolation. Inline rather than a font or a remote
+  // asset so the card stays self-contained and inherits currentColor.
+  const EMPTY_ICON =
+    '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M4.5 3.5h15A1.5 1.5 0 0 1 21 5v14a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19V5a1.5 1.5 0 0 1 1.5-1.5z"/>' +
+    '<path d="M3.4 16.6l4.3-4.3a2 2 0 0 1 2.8 0l3.6 3.6"/>' +
+    '<circle cx="15.5" cy="8.5" r="1.4"/>' +
+    '<path d="M3.4 3.4l17.2 17.2"/></svg>';
+
   function buildCard(item, design) {
     const a = el('a', 'ygx-card');
     a.href = item.href;
     if (item.target) a.target = item.target;
 
-    const media = el('div', 'ygx-media');
-    const img = el('img', 'ygx-img');
-    img.alt = item.title;
-    img.decoding = 'async';
-
-    const wantBig = design === 'editorial' || design === 'showcase' || design === 'masonry';
-    const first = wantBig ? sized(item.images[0], 'medium') : item.images[0];
-    img.dataset.ygxSrc = first;
-    img.dataset.ygxFirst = first;
-
-    // Not every album has a /medium variant, and an occasional cover 404s
-    // outright — walk down to the small original, then to the next photo.
-    const chain = [];
-    for (const u of [first, item.images[0], item.images[1]]) {
-      if (u && !chain.includes(u)) chain.push(u);
+    // The "more" tile has no photo, price or count of its own. Everything it
+    // shows lives in the media area, because Dense hides .ygx-body until hover.
+    if (item.more) {
+      a.classList.add('is-more');
+      const box = el('div', 'ygx-more-box');
+      box.appendChild(el('span', 'ygx-more-arrow', '→'));
+      box.appendChild(el('span', 'ygx-more-label', item.title));
+      if (item.note) box.appendChild(el('span', 'ygx-more-note', item.note));
+      const wrap = el('div', 'ygx-media');
+      wrap.appendChild(box);
+      a.appendChild(wrap);
+      return a;
     }
-    let step = 0;
-    img.addEventListener('error', () => {
-      if (++step >= chain.length) return;
-      img.src = chain[step];
-    });
-    media.appendChild(img);
-    lazyObserver().observe(img);
+
+    const media = el('div', 'ygx-media');
+    let img = null;
+
+    if (item.empty) {
+      // Same reasoning as the "more" tile: the empty state sits in the media
+      // area so it survives every design, not just the ones with a visible body.
+      a.classList.add('is-empty');
+      const box = el('div', 'ygx-empty-box');
+      const icon = el('span', 'ygx-empty-icon');
+      icon.innerHTML = EMPTY_ICON;
+      box.appendChild(icon);
+      box.appendChild(el('span', 'ygx-empty-label', 'No photos'));
+      media.appendChild(box);
+    } else {
+      img = el('img', 'ygx-img');
+      img.alt = item.title;
+      img.decoding = 'async';
+
+      const wantBig = design === 'editorial' || design === 'showcase' || design === 'masonry';
+      const first = wantBig ? sized(item.images[0], 'medium') : item.images[0];
+      img.dataset.ygxSrc = first;
+      img.dataset.ygxFirst = first;
+
+      // Not every album has a /medium variant, and an occasional cover 404s
+      // outright — walk down to the small original, then to the next photo.
+      const chain = [];
+      for (const u of [first, item.images[0], item.images[1]]) {
+        if (u && !chain.includes(u)) chain.push(u);
+      }
+      let step = 0;
+      img.addEventListener('error', () => {
+        if (++step >= chain.length) return;
+        img.src = chain[step];
+      });
+      media.appendChild(img);
+      lazyObserver().observe(img);
+    }
 
     if (item.count) media.appendChild(el('span', 'ygx-count', item.count));
     if (item.price) media.appendChild(el('span', 'ygx-price-float', PRICE_SYMBOL + item.price));
@@ -469,6 +563,12 @@
     syncPanel();
   }
 
+  function setMore(on) {
+    state.more = on;
+    store.set('more', on);
+    render(true);
+  }
+
   function setEnabled(on) {
     state.enabled = on;
     store.set('enabled', on);
@@ -550,6 +650,15 @@
     wideRow.appendChild(cb);
     wideRow.appendChild(el('span', 'ygx-row-label', 'Full-width page'));
     bodyEl.appendChild(wideRow);
+
+    const moreRow = el('label', 'ygx-row ygx-check');
+    const moreCb = el('input');
+    moreCb.type = 'checkbox';
+    moreCb.checked = state.more;
+    moreCb.addEventListener('change', () => setMore(moreCb.checked));
+    moreRow.appendChild(moreCb);
+    moreRow.appendChild(el('span', 'ygx-row-label', 'Show "more" tiles'));
+    bodyEl.appendChild(moreRow);
 
     const toggle = el('button', 'ygx-toggle', '');
     toggle.id = 'ygx-toggle';
@@ -834,6 +943,40 @@
   }
   .ygx-card:hover .ygx-thumb { opacity: 1; }
 
+  /* ---- Empty album ------------------------------------------------------
+   * Yupoo substitutes a placeholder graphic for albums with no photos. It's
+   * drawn here at its natural size instead of being stretched across the card,
+   * and it lives in the media area rather than the body so it survives Dense
+   * (which hides .ygx-body until hover) and Masonry.
+   * -------------------------------------------------------------------- */
+  .ygx-empty-box {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; color: var(--ygx-muted);
+  }
+  .ygx-empty-icon { display: block; width: 26px; height: 26px; opacity: .75; }
+  .ygx-empty-icon svg { display: block; width: 100%; height: 100%; }
+  .ygx-empty-label { font-size: 11px; line-height: 1; }
+
+  /* ---- "More" tile ----------------------------------------------------- */
+  .ygx-card.is-more { background: transparent; border-color: var(--ygx-accent); }
+  .ygx-card.is-more:hover {
+    background: rgba(63,187,133,.08);
+    border-color: var(--ygx-accent);
+    box-shadow: none;
+  }
+  .ygx-card.is-more .ygx-media { background: transparent; }
+  .ygx-more-box {
+    position: absolute; inset: 0; padding: 10px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; color: var(--ygx-accent);
+  }
+  .ygx-more-arrow { font-size: 22px; line-height: 1; }
+  /* Yupoo's own label is lowercase "more"; the text is left verbatim and only
+     cased here, so a localised label still comes through unchanged. */
+  .ygx-more-label { font-size: 14px; font-weight: 700; text-transform: capitalize; }
+  .ygx-more-note { font-size: 12px; color: var(--ygx-muted); }
+
   /* ---- 1. Editorial ---------------------------------------------------- */
   .ygx-grid[data-design="editorial"] {
     grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr)); gap: 22px;
@@ -885,6 +1028,10 @@
   }
   .ygx-grid[data-design="masonry"] .ygx-media { aspect-ratio: auto; }
   .ygx-grid[data-design="masonry"] .ygx-img { height: auto; min-height: 90px; }
+  /* Masonry takes its height from the image. These two cards have none, so
+     without an explicit ratio the media area collapses to nothing. */
+  .ygx-grid[data-design="masonry"] .ygx-card.is-more .ygx-media,
+  .ygx-grid[data-design="masonry"] .ygx-card.is-empty .ygx-media { aspect-ratio: 3/4; }
   .ygx-grid[data-design="masonry"] .ygx-scrim { opacity: 1; }
   .ygx-grid[data-design="masonry"] .ygx-body {
     position: absolute; inset: auto 0 0 0; z-index: 4; padding: 10px 12px 11px; gap: 4px;
@@ -1027,6 +1174,7 @@
   }
   [data-ygx-theme="light"] .ygx-count { background: rgba(255,255,255,.92); color: #344054; }
   [data-ygx-theme="light"] .ygx-price-float { background: #16a06a; color: #fff; }
+  [data-ygx-theme="light"] .ygx-card.is-more:hover { background: rgba(22,160,106,.07); }
 
   /* Sidebar */
   [data-ygx-theme="light"][data-ygx-on] .categories__box-left {
