@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.4.0
+// @version      2.4.1
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -697,6 +697,10 @@
     margin: 1px 0;
     border-radius: 7px;
     font-size: 12px !important;
+    /* Pinned: without it the row inherits Yupoo's line-height, which doesn't
+       match the 6px padding and leaves the text sitting high in its box. */
+    line-height: 1.5 !important;
+    min-height: 0 !important;
     font-weight: 400 !important;
     color: #8e97a8 !important;
     text-decoration: none !important;
