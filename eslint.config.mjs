@@ -9,6 +9,7 @@ const browser = {
   IntersectionObserver: 'readonly', MutationObserver: 'readonly',
   Element: 'readonly', HTMLElement: 'readonly', Image: 'readonly',
   getComputedStyle: 'readonly', fetch: 'readonly', URL: 'readonly',
+  DOMParser: 'readonly',
 };
 
 // Injected by the userscript manager, and only when @grant asks for them —

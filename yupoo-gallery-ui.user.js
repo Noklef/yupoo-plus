@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.5.1
-// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
+// @version      2.6.0
+// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -26,7 +26,7 @@
     { id: 'showcase',  label: 'Showcase',  min: 320, hint: 'Large cards, hover cycles through album photos.' }
   ];
 
-  const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true, theme: 'light', more: true };
+  const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true, theme: 'light', endless: false };
   const THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
 
   /* =========================================================================
@@ -53,7 +53,7 @@
     enabled: store.get('enabled', DEFAULTS.enabled) !== false,
     widen: store.get('widen', DEFAULTS.widen) !== false,
     theme: store.get('theme', DEFAULTS.theme),
-    more: store.get('more', DEFAULTS.more) !== false
+    endless: store.get('endless', DEFAULTS.endless) === true
   };
   if (!DESIGNS.some(d => d.id === state.design)) state.design = DEFAULTS.design;
   if (!THEMES.some(t => t.id === state.theme)) state.theme = DEFAULTS.theme;
@@ -83,6 +83,10 @@
    *           a.album3__main[title="more"][href="/collections/<id>"]
    *             div.album3__showmore > p.album3__more + p  <- "more", "39 items"
    *
+   * The /categories/<id> listing is flatter: one div.categories__parent holding
+   * every div.categories__children, where the title is a sibling of the anchor
+   * rather than a descendant.
+   *
    * Older templates use album__main / album__title; both are handled, and
    * there's a generic fallback for anything else.
    * ====================================================================== */
@@ -90,6 +94,7 @@
   const CARD_SEL = 'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
   const ALBUM_HREF = /\/albums\/(\d+)/;
   const COLLECTION_HREF = /\/collections\/(\d+)/;
+  const CATEGORY_HREF = /\/categories\/(\d+)/;
   // Yupoo's own "not loaded yet" graphics, which must never be cached as a cover.
   const BAD_IMG = /(blank|placeholder|loading|spacer|1x1|nopic|no_pic|default_|\.svg($|\?)|^data:)/i;
   // A usable photo is one served by Yupoo's CDN, or at least a real raster file.
@@ -289,7 +294,6 @@
       let item;
 
       if (showmore) {
-        if (!state.more) continue;
         // <p class="album3__more">more</p><p>1298 items</p>
         const ps = showmore.querySelectorAll('p');
         item = Object.assign(base, {
@@ -513,6 +517,135 @@
     applyDensity();
   }
 
+  /* =========================================================================
+   * 3b. Endless scroll
+   *
+   * All three paginated page types (/, /albums, /categories/<id>) serve plain
+   * server-rendered HTML on this origin, and all expose the same next link. On
+   * the last page that anchor carries no href, which is the stop signal.
+   *
+   * Fetched cards are grafted into the hidden original markup rather than into
+   * our output, so scraping, dedupe and "Restore original layout" are unchanged.
+   * ====================================================================== */
+
+  const NEXT_SEL = 'nav.pagination__main a[title="next page"]';
+  const GRID_SEL = '.showindex__parent, .categories__parent';
+
+  // url: null means "not looked up yet", '' means "no further pages".
+  const endless = { url: null, busy: false, node: null, io: null, seen: new Set() };
+
+  function nextPageUrl(doc) {
+    const a = doc.querySelector(NEXT_SEL);
+    const href = a && a.getAttribute('href');
+    return href ? new URL(href, location.href).href : '';
+  }
+
+  function albumId(node) {
+    const a = node.querySelector(CARD_SEL) || node;
+    const m = (a.getAttribute('href') || '').match(ALBUM_HREF);
+    return m ? m[1] : '';
+  }
+
+  function endlessStatus(text) {
+    if (endless.node) endless.node.firstChild.textContent = text;
+  }
+
+  // Kept outside .ygx-root so render()'s teardown can't take it with it.
+  function placeSentinel() {
+    if (!endless.node) {
+      endless.node = el('div', 'ygx-endless');
+      endless.node.appendChild(el('span', 'ygx-endless-text', ''));
+    }
+    const roots = document.querySelectorAll('.ygx-root');
+    const last = roots[roots.length - 1];
+    if (!last) return;
+    last.parentElement.insertBefore(endless.node, last.nextSibling);
+    if (!endless.io) {
+      endless.io = new IntersectionObserver(es => {
+        if (es.some(e => e.isIntersecting)) loadNextPage();
+      }, { rootMargin: '800px 0px' });
+    }
+    // Re-observing forces a fresh callback: staying in view is not a change, so
+    // without this the second page never triggers a third.
+    endless.io.unobserve(endless.node);
+    endless.io.observe(endless.node);
+  }
+
+  async function loadNextPage() {
+    if (endless.busy || !endless.url || !state.endless || !state.enabled) return;
+    endless.busy = true;
+    endlessStatus('Loading more…');
+
+    let doc;
+    try {
+      const res = await fetch(endless.url, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(String(res.status));
+      doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+    } catch {
+      endless.busy = false;
+      endlessStatus('Could not load the next page. Scroll to retry.');
+      return;
+    }
+
+    const live = Array.from(document.querySelectorAll(GRID_SEL)).filter(g => !g.closest('.ygx-root'));
+    // One live grid is a flat list, so the next page continues it. Several means
+    // sections, and the next page is a flat list that must not land under the
+    // last heading, so it gets a container of its own.
+    const target = live.length === 1 ? live[0] : null;
+
+    for (const g of Array.from(doc.querySelectorAll(GRID_SEL))) {
+      const kids = Array.from(g.children).filter(k => {
+        const id = albumId(k);
+        if (id && endless.seen.has(id)) return false;
+        if (id) endless.seen.add(id);
+        return true;
+      });
+      if (!kids.length) continue;
+
+      const dest = target || g.cloneNode(false);
+      kids.forEach(k => dest.appendChild(document.adoptNode(k)));
+      if (!target) {
+        const last = live[live.length - 1];
+        last.parentElement.insertBefore(dest, last.nextSibling);
+        live.push(dest);
+      }
+    }
+
+    endless.url = nextPageUrl(doc);
+    endless.busy = false;
+    lastSignature = '';
+    render(true);
+    placeSentinel();
+    endlessStatus(endless.url ? '' : 'End of results');
+  }
+
+  function startEndless() {
+    if (!state.endless || !state.enabled) return;
+    if (!endless.seen.size) {
+      document.querySelectorAll(CARD_SEL).forEach(a => {
+        const m = (a.getAttribute('href') || '').match(ALBUM_HREF);
+        if (m) endless.seen.add(m[1]);
+      });
+    }
+    if (endless.url === null) endless.url = nextPageUrl(document);
+    placeSentinel();
+    endlessStatus(endless.url ? '' : 'End of results');
+  }
+
+  function stopEndless() {
+    if (endless.io) { endless.io.disconnect(); endless.io = null; }
+    if (endless.node) { endless.node.remove(); endless.node = null; }
+  }
+
+  // Appended pages stay in the DOM; only the tracking resets, so a fresh page
+  // starts counting from its own first result.
+  function resetEndless() {
+    stopEndless();
+    endless.url = null;
+    endless.busy = false;
+    endless.seen.clear();
+  }
+
   function applyDensity() {
     const d = DESIGNS.find(x => x.id === state.design) || DESIGNS[0];
     const min = Math.round(d.min * state.density);
@@ -535,6 +668,30 @@
     document.documentElement.setAttribute('data-ygx-theme', state.theme);
   }
 
+  // Hides Yupoo's own paginators, which endless scroll has taken over from.
+  function applyEndlessAttr() {
+    document.documentElement.toggleAttribute('data-ygx-endless', state.endless && state.enabled);
+  }
+
+  // Yupoo ships no "current" class for the sub-category row, and it sizes the
+  // fold for its own 46px rows, so both are redone here for the pill layout.
+  function syncSubcats() {
+    const wrap = document.querySelector('.categories__box-right-categories-wrap');
+    const inner = wrap && wrap.querySelector('.categories__box-right-categories');
+    if (!inner) return;
+
+    const here = (location.pathname.match(CATEGORY_HREF) || [])[1];
+    inner.querySelectorAll('.categories__box-right-category-item').forEach(a => {
+      const m = (a.getAttribute('href') || '').match(CATEGORY_HREF);
+      a.classList.toggle('ygx-here', !!here && !!m && m[1] === here);
+    });
+
+    const toggle = wrap.querySelector('.categories__box-right-categories-toggle');
+    if (!toggle) return;
+    const clipped = inner.scrollHeight > inner.clientHeight + 1;
+    toggle.style.display = clipped || !wrap.classList.contains('is-fold') ? '' : 'none';
+  }
+
   function setTheme(id) {
     state.theme = id;
     store.set('theme', id);
@@ -549,10 +706,12 @@
     syncPanel();
   }
 
-  function setMore(on) {
-    state.more = on;
-    store.set('more', on);
-    render(true);
+  function setEndless(on) {
+    state.endless = on;
+    store.set('endless', on);
+    applyEndlessAttr();
+    if (on) startEndless();
+    else stopEndless();
   }
 
   function setEnabled(on) {
@@ -560,9 +719,10 @@
     store.set('enabled', on);
     lastSignature = '';
     applyEnabledAttr();
+    applyEndlessAttr();
     applyWiden();
-    if (on) render(true);
-    else teardown();
+    if (on) { render(true); startEndless(); }
+    else { teardown(); stopEndless(); }
     syncPanel();
   }
 
@@ -637,14 +797,14 @@
     wideRow.appendChild(el('span', 'ygx-row-label', 'Full-width page'));
     bodyEl.appendChild(wideRow);
 
-    const moreRow = el('label', 'ygx-row ygx-check');
-    const moreCb = el('input');
-    moreCb.type = 'checkbox';
-    moreCb.checked = state.more;
-    moreCb.addEventListener('change', () => setMore(moreCb.checked));
-    moreRow.appendChild(moreCb);
-    moreRow.appendChild(el('span', 'ygx-row-label', 'Show "more" tiles'));
-    bodyEl.appendChild(moreRow);
+    const endRow = el('label', 'ygx-row ygx-check');
+    const endCb = el('input');
+    endCb.type = 'checkbox';
+    endCb.checked = state.endless;
+    endCb.addEventListener('change', () => setEndless(endCb.checked));
+    endRow.appendChild(endCb);
+    endRow.appendChild(el('span', 'ygx-row-label', 'Endless scroll'));
+    bodyEl.appendChild(endRow);
 
     const toggle = el('button', 'ygx-toggle', '');
     toggle.id = 'ygx-toggle';
@@ -828,6 +988,87 @@
   [data-ygx-on] .categories__box-left .yupoo-collapse-item:not(.yupoo-collapse-item-single) > .yupoo-collapse-header > a {
     max-width: calc(100% - 28px);
   }
+
+  /* ---- Sidebar collapse button ----------------------------------------
+   * An empty 24px div positioned against .categories__box, not the sidebar, so
+   * it lands on top of the first row 5px inside the sidebar's right edge. Fine
+   * against Yupoo's flat grey block; against our rounded card it reads as debris.
+   *
+   * The icon is a background image, so the dark theme inverts the whole element
+   * and the surface colours here are pre-inverted to compensate.
+   * -------------------------------------------------------------------- */
+  [data-ygx-on] .yupoo-categories-hide-sidebar,
+  [data-ygx-on] .yupoo-categories-show-sidebar {
+    width: 26px !important;
+    height: 26px !important;
+    background-size: 15px 15px !important;
+    background-color: #e6e3db !important;
+    border: 1px solid #d5d0c4 !important;
+    border-radius: 7px !important;
+    filter: invert(1);
+    z-index: 2;
+    transition: background-color .15s, border-color .15s;
+  }
+  [data-ygx-on] .yupoo-categories-hide-sidebar:hover,
+  [data-ygx-on] .yupoo-categories-show-sidebar:hover {
+    background-color: #dcd7cc !important; border-color: #c5bead !important;
+  }
+  /* Yupoo insets it 5px from the sidebar edge; the card needs 7px for its border
+     plus padding, and the button is 2px wider than the one it was sized for. */
+  [data-ygx-on] .yupoo-categories-hide-sidebar { transform: translate(-4px, -1px); }
+
+  /* The button sits over the first row, so that row alone reserves its width.
+     Declared after the chevron rule so it wins the 28px reservation. */
+  [data-ygx-on] .categories__box-left .yupoo-collapse-item:first-child > .yupoo-collapse-header > a {
+    max-width: calc(100% - 32px);
+  }
+
+  /* ---- Sub-category row (above the grid) -------------------------------
+   * .categories__box-right-categories-wrap.is-fold
+   *   > .categories__box-right-categories
+   *       > .categories__box-right-category-item-trick-wrap
+   *           > a.categories__box-right-category-item
+   *   > .categories__box-right-categories-toggle          "More" / "Less"
+   * -------------------------------------------------------------------- */
+  [data-ygx-on] .categories__box-right-categories {
+    gap: 8px !important;
+    /* Left edge lines up with the first card; the right reserves the More button. */
+    padding: 0 72px 0 24px !important;
+    margin: 0 0 12px !important;
+  }
+  /* Yupoo pins every wrapper to 179px, so a short label reserves as much room as
+     the longest one. Let the pills hug their text instead. */
+  [data-ygx-on] .categories__box-right-category-item-trick-wrap {
+    width: auto !important;
+    margin: 0 !important;
+  }
+  [data-ygx-on] .categories__box-right-category-item {
+    display: inline-block;
+    padding: 5px 12px !important;
+    border-radius: 999px;
+    background: #191c24;
+    border: 1px solid #2a2f3b;
+    font-size: 12.5px !important;
+    line-height: 1.44 !important;
+    color: #b9c1d0 !important;
+    text-decoration: none !important;
+    transition: background .15s, border-color .15s, color .15s;
+  }
+  [data-ygx-on] .categories__box-right-category-item:hover {
+    background: #232833; border-color: #3a4152; color: #fff !important;
+  }
+  [data-ygx-on] .categories__box-right-category-item.ygx-here {
+    background: #3fbb85; border-color: #3fbb85; color: #07130d !important; font-weight: 600;
+  }
+  /* Two pill rows of 30px plus one 8px gap, replacing Yupoo's 94px cut. */
+  [data-ygx-on] .categories__box-right-categories-wrap.is-fold .categories__box-right-categories {
+    max-height: 68px !important;
+  }
+  [data-ygx-on] .categories__box-right-categories-toggle {
+    top: 6px !important; right: 24px !important;
+    font-size: 12px !important; color: #97a0b2 !important; cursor: pointer;
+  }
+  [data-ygx-on] .categories__box-right-categories-toggle:hover { color: #3fbb85 !important; }
 
   /* Header row above the grid: total count + pagination */
   [data-ygx-on] .categories__box-right-total,
@@ -1050,6 +1291,17 @@
   .ygx-grid[data-design="showcase"] .ygx-count { top: 10px; right: 10px; bottom: auto; }
   .ygx-grid[data-design="showcase"] .ygx-card:hover .ygx-img { transform: none; }
 
+  /* ---- Endless scroll -------------------------------------------------- */
+  [data-ygx-endless] nav.pagination__main,
+  [data-ygx-endless] .categories__box-right-pagination { display: none !important; }
+
+  .ygx-endless {
+    min-height: 40px; padding: 4px 24px 30px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .ygx-endless-text { font-size: 12px; color: #97a0b2; letter-spacing: .2px; }
+
   /* ---- Control panel --------------------------------------------------- */
   .ygx-panel {
     position: fixed; right: 18px; bottom: 18px; z-index: 2147483000;
@@ -1189,6 +1441,30 @@
     background: rgba(22,160,106,.10) !important;
     box-shadow: inset 2px 0 0 #16a06a;
   }
+  [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-hide-sidebar,
+  [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-show-sidebar {
+    filter: none; background-color: #fff !important; border-color: #e4e7ec !important;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-hide-sidebar:hover,
+  [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-show-sidebar:hover {
+    background-color: #f4f6f8 !important; border-color: #cfd4dc !important;
+  }
+
+  /* Sub-category pills */
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-category-item {
+    background: #fff; border-color: #e4e7ec; color: #475467 !important;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-category-item:hover {
+    background: #f4f6f8; border-color: #cfd4dc; color: #101828 !important;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-category-item.ygx-here {
+    background: #16a06a; border-color: #16a06a; color: #fff !important;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-categories-toggle { color: #667085 !important; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-categories-toggle:hover { color: #0f8f5f !important; }
+
+  [data-ygx-theme="light"] .ygx-endless-text { color: #667085; }
+
   [data-ygx-theme="light"][data-ygx-on] .categories__box-right-total,
   [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination-span { color: #667085 !important; }
   [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination a { color: #475467 !important; }
@@ -1244,10 +1520,13 @@
     injectCSS();
     applyTheme();
     applyEnabledAttr();
+    applyEndlessAttr();
     applyWiden();
     applyDensity();
     buildPanel();
     render(true);
+    syncSubcats();
+    startEndless();
 
     const reflow = debounce(() => render(false), 250);
     new MutationObserver((muts) => {
@@ -1263,7 +1542,8 @@
       if (location.href !== lastUrl) {
         lastUrl = location.href;
         lastSignature = '';
-        setTimeout(() => render(true), 400);
+        resetEndless();
+        setTimeout(() => { render(true); syncSubcats(); startEndless(); }, 400);
       }
     }, 700);
 
