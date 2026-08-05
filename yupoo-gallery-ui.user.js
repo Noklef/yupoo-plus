@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.5.0
+// @version      2.5.1
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -77,15 +77,11 @@
    *               div.album3__squareWrap > img.album3__img[data-src]   <- thumbs
    *             div.album3__title                   <- title
    *
-   * The last child of a grid may instead be a "more" tile, which links to the
-   * collection rather than an album and carries no title node:
+   * A grid's last child may instead be a "more" tile linking to the collection:
    *
    *         div.showindex__children
    *           a.album3__main[title="more"][href="/collections/<id>"]
-   *             div.album__imgwrap > img.album__img   <- cover, as normal
-   *             div.album3__showmore
-   *               p.album3__more                      <- "more"
-   *               p                                   <- "1298 items"
+   *             div.album3__showmore > p.album3__more + p  <- "more", "39 items"
    *
    * Older templates use album__main / album__title; both are handled, and
    * there's a generic fallback for anything else.
@@ -98,25 +94,20 @@
   const BAD_IMG = /(blank|placeholder|loading|spacer|1x1|nopic|no_pic|default_|\.svg($|\?)|^data:)/i;
   // A usable photo is one served by Yupoo's CDN, or at least a real raster file.
   const GOOD_IMG = /(photo\.yupoo\.com|\.(jpe?g|png|webp|gif)($|\?))/i;
-  // The graphic Yupoo substitutes when an album contains no photos at all. It
-  // is a real .png on a real CDN, so GOOD_IMG accepts it and BAD_IMG doesn't
-  // catch it — without this it gets cached as a cover and renders as a grey
-  // icon stretched edge-to-edge across the card.
+  // Yupoo's "no photos" graphic: a real .png on a real CDN, so GOOD_IMG accepts
+  // it and BAD_IMG misses it. Without this it gets cached as a cover.
   const PLACEHOLDER_IMG = /im_photo_album/i;
 
-  // Read in this order: the lazy-load attributes hold the real photo, and `src`
-  // is often still a 1x1 data: URI. Yupoo also serves a /square variant, but
-  // only ever in `src`, so preferring data-src is what keeps it out of results.
+  // Lazy-load attributes first: `src` is often a 1x1 data: URI, and Yupoo's
+  // /square variant only ever appears there.
   const IMG_ATTRS = ['data-origin-src', 'data-original', 'data-src', 'data-lazy', 'src'];
 
   function isRealPhoto(u) {
     return !!u && !BAD_IMG.test(u) && !PLACEHOLDER_IMG.test(u) && GOOD_IMG.test(u);
   }
 
-  // Those albums are still worth a card — they have a title and usually a price
-  // — so they're flagged and given an empty state rather than dropped. Both
-  // halves of the test matter: requiring a zero photo count as well keeps a real
-  // cover that happens to match the filename from being read as empty.
+  // Flagged rather than dropped: the card still has a title and price. The zero
+  // count stops a real cover that matches the filename reading as empty.
   function isEmptyAlbum(card) {
     if (readCount(card) !== 0) return false;
     return Array.from(card.querySelectorAll('img')).some(n =>
@@ -285,9 +276,8 @@
       if (a.closest('.ygx-root')) continue;      // our own output
       if (a.closest('.pagination__main')) continue;
       const href = a.getAttribute('href') || '';
-      // A "more" tile links to the collection, not an album. It's identified by
-      // both the href and the marker node so that a plain collection link
-      // elsewhere on the page can't be mistaken for one.
+      // Href plus marker node, so a plain collection link elsewhere on the page
+      // isn't mistaken for a "more" tile.
       const showmore = COLLECTION_HREF.test(href) ? a.querySelector('.album3__showmore') : null;
       if (!showmore && !ALBUM_HREF.test(href)) continue;
 
@@ -311,8 +301,7 @@
         item.title = item.title.trim() || 'More';
       } else {
         const images = readImages(card);
-        // No images and no placeholder means the scrape missed, not an empty
-        // album — skip rather than render a card we know nothing about.
+        // No images and no placeholder means the scrape missed, not an empty album.
         const empty = !images.length && isEmptyAlbum(card);
         if (!images.length && !empty) continue;
 
@@ -373,8 +362,7 @@
     return n;
   }
 
-  // Static markup, no interpolation. Inline rather than a font or a remote
-  // asset so the card stays self-contained and inherits currentColor.
+  // Static markup, inlined so the card stays self-contained and takes currentColor.
   const EMPTY_ICON =
     '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
     'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
@@ -388,8 +376,7 @@
     a.href = item.href;
     if (item.target) a.target = item.target;
 
-    // The "more" tile has no photo, price or count of its own. Everything it
-    // shows lives in the media area, because Dense hides .ygx-body until hover.
+    // Content goes in the media area, since Dense hides .ygx-body until hover.
     if (item.more) {
       a.classList.add('is-more');
       const box = el('div', 'ygx-more-box');
@@ -406,8 +393,7 @@
     let img = null;
 
     if (item.empty) {
-      // Same reasoning as the "more" tile: the empty state sits in the media
-      // area so it survives every design, not just the ones with a visible body.
+      // Media area again, so it survives the designs that hide the body.
       a.classList.add('is-empty');
       const box = el('div', 'ygx-empty-box');
       const icon = el('span', 'ygx-empty-icon');
@@ -759,6 +745,11 @@
     outline: 0 !important;
     margin: 0 !important;
     padding: 0 10px !important;
+    /* Yupoo's line-height:48px strut beats the anchor's padding, leaving a 48px
+       row with the label sitting high. Same defect the content items had. */
+    line-height: 1.4 !important;
+    height: auto !important;
+    min-height: 0 !important;
     border-radius: 8px;
     cursor: pointer;
     transition: background .15s;
@@ -832,10 +823,10 @@
     color: #e9ecf3 !important;
   }
 
-  /* Reserve room for Yupoo's chevron so the ellipsis stops before it instead
-     of running underneath. .yupoo-collapse-item-single has no chevron. */
+  /* The chevron is a ::after at right:16px width:12px, so it reaches 28px in;
+     20px left only 2px of clearance. .yupoo-collapse-item-single has none. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-item:not(.yupoo-collapse-item-single) > .yupoo-collapse-header > a {
-    max-width: calc(100% - 20px);
+    max-width: calc(100% - 28px);
   }
 
   /* Header row above the grid: total count + pagination */
@@ -943,11 +934,8 @@
   }
   .ygx-card:hover .ygx-thumb { opacity: 1; }
 
-  /* ---- Empty album ------------------------------------------------------
-   * Yupoo substitutes a placeholder graphic for albums with no photos. It's
-   * drawn here at its natural size instead of being stretched across the card,
-   * and it lives in the media area rather than the body so it survives Dense
-   * (which hides .ygx-body until hover) and Masonry.
+  /* ---- Empty album -----------------------------------------------------
+   * Natural size, not stretched; in the media area so Dense/Masonry keep it.
    * -------------------------------------------------------------------- */
   .ygx-empty-box {
     position: absolute; inset: 0;
@@ -972,8 +960,7 @@
     gap: 4px; color: var(--ygx-accent);
   }
   .ygx-more-arrow { font-size: 22px; line-height: 1; }
-  /* Yupoo's own label is lowercase "more"; the text is left verbatim and only
-     cased here, so a localised label still comes through unchanged. */
+  /* Yupoo's label is lowercase "more"; cased here so the text stays verbatim. */
   .ygx-more-label { font-size: 14px; font-weight: 700; text-transform: capitalize; }
   .ygx-more-note { font-size: 12px; color: var(--ygx-muted); }
 
@@ -1028,8 +1015,7 @@
   }
   .ygx-grid[data-design="masonry"] .ygx-media { aspect-ratio: auto; }
   .ygx-grid[data-design="masonry"] .ygx-img { height: auto; min-height: 90px; }
-  /* Masonry takes its height from the image. These two cards have none, so
-     without an explicit ratio the media area collapses to nothing. */
+  /* Masonry sizes from the image; neither card has one, so pin a ratio. */
   .ygx-grid[data-design="masonry"] .ygx-card.is-more .ygx-media,
   .ygx-grid[data-design="masonry"] .ygx-card.is-empty .ygx-media { aspect-ratio: 3/4; }
   .ygx-grid[data-design="masonry"] .ygx-scrim { opacity: 1; }
@@ -1191,7 +1177,6 @@
     background: rgba(22,160,106,.10) !important; box-shadow: inset 2px 0 0 #16a06a;
   }
   [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header > a { color: #0f8f5f !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-header > a { color: #101828 !important; }
   [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-item-active > .yupoo-collapse-header > a { color: #101828 !important; }
   [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-box { border-left-color: #e4e7ec !important; }
   [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item { color: #667085 !important; }
