@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.0.0
+// @version      2.1.0
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -79,8 +79,52 @@
 
   const CARD_SEL = 'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
   const ALBUM_HREF = /\/albums\/(\d+)/;
-  const PRICE_RE = /[¥￥]\s*([0-9][0-9,]*(?:\.[0-9]+)?)/;
   const BAD_IMG = /(blank|placeholder|loading|spacer|1x1|^data:)/i;
+
+  /* ---- Price formats ------------------------------------------------------
+   * Add new formats here — nothing else needs touching.
+   *
+   * Each entry's `src` is a regex source string that must capture the bare
+   * number in group 1. They're tried in order, first match wins, and the
+   * matched text is stripped from the title.
+   *
+   * NUM  accepts 1,299 / 299 / 299.50
+   * NUM2 is the same but requires 2+ digits, used for the bare-letter forms
+   *      so that "Y2K" or "S3" don't read as prices.
+   * ---------------------------------------------------------------------- */
+
+  const NUM  = '((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)';
+  const NUM2 = '((?:\\d{1,3}(?:,\\d{3})+|\\d{2,})(?:\\.\\d+)?)';
+  const NOTW = '(?<![A-Za-z0-9])';   // left word boundary, letters included
+  const NOTW_R = '(?![A-Za-z0-9])';  // right word boundary
+
+  const PRICE_SYMBOL = '¥';   // what gets rendered on the card, whatever was matched
+
+  const PRICE_PATTERNS = [
+    { name: '¥259',     src: '[¥￥]\\s*' + NUM },
+    { name: '259¥',     src: NUM + '\\s*[¥￥]' },
+    { name: '259Y',     src: NOTW + NUM2 + '\\s*[Yy]' + NOTW_R },
+    { name: 'Y259',     src: NOTW + '[Yy]\\s*' + NUM2 },
+    { name: '259元',    src: NUM + '\\s*元' },
+    { name: '259RMB',   src: NUM + '\\s*(?:RMB|CNY)' + NOTW_R },
+    { name: 'RMB259',   src: '(?:RMB|CNY)\\s*' + NUM }
+  ];
+
+  // Compiled defensively: lookbehind is unsupported on some older engines, and
+  // an uncompilable literal would take the whole userscript down at parse time.
+  const PRICE_RES = PRICE_PATTERNS.map(p => {
+    try { return { name: p.name, re: new RegExp(p.src) }; } catch (e) { return null; }
+  }).filter(Boolean);
+
+  // -> { value: '259', matched: '¥259', format: '¥259' } or null
+  function parsePrice(text) {
+    if (!text) return null;
+    for (const p of PRICE_RES) {
+      const m = text.match(p.re);
+      if (m && m[1]) return { value: m[1].replace(/,/g, ''), matched: m[0], format: p.name };
+    }
+    return null;
+  }
 
   function absUrl(u) {
     if (!u) return '';
@@ -190,15 +234,17 @@
       if (!images.length) continue;
 
       const rawTitle = readTitle(card);
-      const pm = rawTitle.match(PRICE_RE);
+      const pm = parsePrice(rawTitle);
       const count = readCount(card);
 
       const item = {
         href: a.href,
         target: a.getAttribute('target') || '',
         // Only the price is parsed out; the rest of the string stays verbatim.
-        price: pm ? pm[1] : '',
-        title: (pm ? rawTitle.replace(pm[0], '') : rawTitle).replace(/\s+/g, ' ').trim(),
+        price: pm ? pm.value : '',
+        title: (pm ? rawTitle.replace(pm.matched, '') : rawTitle)
+          .replace(/^[\s\-–—:|,]+/, '')
+          .replace(/\s+/g, ' ').trim(),
         images,
         count: count > 1 ? String(count) : ''
       };
@@ -267,7 +313,7 @@
     lazyObserver().observe(img);
 
     if (item.count) media.appendChild(el('span', 'ygx-count', item.count));
-    if (item.price) media.appendChild(el('span', 'ygx-price-float', '¥' + item.price));
+    if (item.price) media.appendChild(el('span', 'ygx-price-float', PRICE_SYMBOL + item.price));
     media.appendChild(el('span', 'ygx-scrim'));
 
     const body = el('div', 'ygx-body');
@@ -276,7 +322,7 @@
     body.appendChild(title);
 
     const meta = el('div', 'ygx-meta');
-    if (item.price) meta.appendChild(el('span', 'ygx-price', '¥' + item.price));
+    if (item.price) meta.appendChild(el('span', 'ygx-price', PRICE_SYMBOL + item.price));
     if (item.count) meta.appendChild(el('span', 'ygx-chip', item.count + ' photos'));
     if (meta.children.length) body.appendChild(meta);
 
