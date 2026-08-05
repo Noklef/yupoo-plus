@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.1.2
+// @version      2.1.3
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -581,6 +581,11 @@
     color: var(--ygx-text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
                  "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
+    /* Keep the whole grid below Yupoo's own overlays (category dropdown,
+       lightbox, modals) rather than competing with them. */
+    position: relative;
+    z-index: 0;
+    isolation: isolate;
   }
   .ygx-root *, .ygx-root *::before, .ygx-root *::after { box-sizing: border-box; }
 
@@ -596,6 +601,9 @@
     border: 1px solid var(--ygx-line);
     border-radius: 14px;
     overflow: hidden;
+    /* Contains the price pill / count badge z-index inside the card, so they
+       can't paint over page chrome. */
+    isolation: isolate;
     transition: transform .22s cubic-bezier(.2,.7,.3,1),
                 border-color .22s, box-shadow .22s, background .22s;
   }
