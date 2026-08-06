@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.7.2
+// @version      2.8.0
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
+// @exclude      *://photo.yupoo.com/*
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -24,7 +25,14 @@
     { id: 'showcase',  label: 'Showcase',  min: 320, hint: 'Large cards, hover cycles through album photos.' }
   ];
 
-  const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true, theme: 'light', endless: false };
+  const DEFAULTS = {
+    design: 'editorial', density: 1, enabled: true, widen: true,
+    theme: 'light', endless: false, collapsed: false
+  };
+
+  // Live, not a snapshot: cards outlive the query, so the hover cycle reads it
+  // each time rather than baking the boot-time answer in.
+  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   // Shelved, not removed: it loads and dedupes correctly but crashes long
   // sessions. Flip to true to pick it back up; nothing else needs changing.
@@ -53,6 +61,7 @@
     enabled: store.get('enabled', DEFAULTS.enabled) !== false,
     widen: store.get('widen', DEFAULTS.widen) !== false,
     theme: store.get('theme', DEFAULTS.theme),
+    collapsed: store.get('collapsed', DEFAULTS.collapsed) === true,
     // Forced off while shelved, so a previously saved true does not revive it.
     endless: ENDLESS_READY && store.get('endless', DEFAULTS.endless) === true
   };
@@ -79,14 +88,18 @@
   // /square variant only ever appears there.
   const IMG_ATTRS = ['data-origin-src', 'data-original', 'data-src', 'data-lazy', 'src'];
 
+  // Read by readCount and stripped by readTitle's fallback, which would
+  // otherwise hand the photo count to parsePrice as a candidate number.
+  const COUNT_SEL = '.album__photonumber, [class*="photonumber"], [class*="imgnum"]';
+
   function isRealPhoto(u) {
     return !!u && !BAD_IMG.test(u) && !PLACEHOLDER_IMG.test(u) && GOOD_IMG.test(u);
   }
 
   // Flagged rather than dropped: the card still has a title and price. The zero
   // count stops a real cover that matches the filename reading as empty.
-  function isEmptyAlbum(card) {
-    if (readCount(card) !== 0) return false;
+  function isEmptyAlbum(card, count) {
+    if (count !== 0) return false;
     return Array.from(card.querySelectorAll('img')).some(n =>
       IMG_ATTRS.some(attr => PLACEHOLDER_IMG.test(n.getAttribute(attr) || '')));
   }
@@ -100,14 +113,19 @@
   const NUM2 = '((?:\\d{1,3}(?:,\\d{3})+|\\d{2,})(?:\\.\\d+)?)';
   const NOTW = '(?<![A-Za-z0-9])';   // left word boundary, letters included
   const NOTW_R = '(?![A-Za-z0-9])';  // right word boundary
+  // Lookbehind-free stand-in. It consumes the boundary character, so the match
+  // runs one char wide, which the title's leading-punctuation strip absorbs.
+  const NOTW_ALT = '(?:^|[^A-Za-z0-9])';
 
   const PRICE_SYMBOL = '¥';   // what gets rendered on the card, whatever was matched
 
   const PRICE_PATTERNS = [
     { name: '¥259',     src: '[¥￥]\\s*' + NUM },
     { name: '259¥',     src: NUM + '\\s*[¥￥]' },
-    { name: '259Y',     src: NOTW + NUM2 + '\\s*[Yy]' + NOTW_R },
-    { name: 'Y259',     src: NOTW + '[Yy]\\s*' + NUM2 },
+    { name: '259Y',     src: NOTW + NUM2 + '\\s*[Yy]' + NOTW_R,
+                        alt: NOTW_ALT + NUM2 + '\\s*[Yy]' + NOTW_R },
+    { name: 'Y259',     src: NOTW + '[Yy]\\s*' + NUM2,
+                        alt: NOTW_ALT + '[Yy]\\s*' + NUM2 },
     { name: '259元',    src: NUM + '\\s*元' },
     { name: '259RMB',   src: NUM + '\\s*(?:RMB|CNY)' + NOTW_R },
     { name: 'RMB259',   src: '(?:RMB|CNY)\\s*' + NUM }
@@ -115,8 +133,14 @@
 
   // Compiled defensively: lookbehind is unsupported on some older engines, and
   // an uncompilable literal would take the whole userscript down at parse time.
+  // A pattern that will not compile falls back to its `alt`, so the format
+  // degrades to looser matching instead of disappearing.
   const PRICE_RES = PRICE_PATTERNS.map(p => {
-    try { return { name: p.name, re: new RegExp(p.src) }; } catch { return null; }
+    for (const src of [p.src, p.alt]) {
+      if (!src) continue;
+      try { return { name: p.name, re: new RegExp(src) }; } catch { /* try alt */ }
+    }
+    return null;
   }).filter(Boolean);
 
   // -> { value: '259', matched: '¥259', format: '¥259' } or null
@@ -138,11 +162,14 @@
     return u;
   }
 
-  // Yupoo serves /small /medium /big variants of the same path. Everything is
-  // pinned to /small at scrape time, so nothing downstream picks a size.
+  // Yupoo serves /small /medium /big variants of the same path. One shape for
+  // both pinning a size and building the dedupe key, so they cannot drift.
+  const SIZE_RE = /\/(small|medium|big)(\.[a-z]{3,4})(\?.*)?$/i;
+
+  // Everything is pinned to /small at scrape time, so nothing downstream picks.
   function sized(url, want) {
     if (!url) return url;
-    return url.replace(/\/(small|medium|big)(\.[a-z]{3,4})(\?.*)?$/i, '/' + want + '$2$3');
+    return url.replace(SIZE_RE, '/' + want + '$2$3');
   }
 
   function urlFromNode(node) {
@@ -165,7 +192,7 @@
     const seen = new Set();
     // Dedupe on the photo, not the URL: cover and first thumbnail are one
     // picture at two sizes, so raw URLs render a 1-photo album twice.
-    const key = (u) => u.replace(/\/(small|medium|big)(\.[a-z]{3,4})($|\?)/i, '/*');
+    const key = (u) => sized(u, '*');
     const push = (u) => {
       if (!isRealPhoto(u)) return;
       const k = key(u);
@@ -204,11 +231,16 @@
       const v = (node.getAttribute('title') || node.textContent || '').trim();
       if (v) return v.replace(/\s+/g, ' ');
     }
-    return (card.textContent || '').trim().replace(/\s+/g, ' ');
+    // Last resort on unknown templates. The badges come off first, or the photo
+    // count lands in the title and parsePrice reads its digits as a price.
+    const clone = card.cloneNode(true);
+    clone.querySelectorAll(COUNT_SEL + ', .album3__loading, .album3__showmore')
+      .forEach(n => n.remove());
+    return (clone.textContent || '').trim().replace(/\s+/g, ' ');
   }
 
   function readCount(card) {
-    const node = card.querySelector('.album__photonumber, [class*="photonumber"], [class*="imgnum"]');
+    const node = card.querySelector(COUNT_SEL);
     if (node) {
       const m = (node.textContent || '').match(/\d+/);
       if (m) return Number(m[0]);
@@ -217,7 +249,7 @@
   }
 
   // Grow upward from the anchor until the container would swallow a 2nd card.
-  function cardRootFor(anchor) {
+  function cardRootFor(anchor, anchors) {
     // .categories__children is the /categories listing; .showindex__children
     // is the album grid and the category_commerce home page.
     const known = anchor.closest('.showindex__children, .categories__children, li.album, .album__main');
@@ -227,7 +259,9 @@
     for (let i = 0; i < 6 && node.parentElement; i++) {
       node = node.parentElement;
       if (node === document.body) break;
-      if (node.querySelectorAll(CARD_SEL).length > 1) break;
+      // Containment against the anchors already in hand. A querySelectorAll per
+      // ancestor re-scans the whole grid, which is quadratic in the card count.
+      if (anchors.some(o => o !== anchor && node.contains(o))) break;
       best = node;
     }
     return best;
@@ -235,19 +269,20 @@
 
   // Returns [{ grid: <original grid element>, items: [...] }]
   function scrapeGroups() {
-    const anchors = Array.from(document.querySelectorAll(CARD_SEL));
+    // Filtered up front rather than skipped in the loop: cardRootFor tests
+    // containment against this list and must not count our own cards.
+    const anchors = Array.from(document.querySelectorAll(CARD_SEL))
+      .filter(a => !a.closest('.ygx-root') && !a.closest('.pagination__main'));
     const groups = new Map();
 
     for (const a of anchors) {
-      if (a.closest('.ygx-root')) continue;      // our own output
-      if (a.closest('.pagination__main')) continue;
       const href = a.getAttribute('href') || '';
       // Href plus marker node, so a plain collection link elsewhere on the page
       // isn't mistaken for a "more" tile.
       const showmore = COLLECTION_HREF.test(href) ? a.querySelector('.album3__showmore') : null;
       if (!showmore && !ALBUM_HREF.test(href)) continue;
 
-      const card = cardRootFor(a);
+      const card = cardRootFor(a, anchors);
       const grid = card.parentElement;
       if (!grid || grid === document.body) continue;
 
@@ -265,14 +300,14 @@
         });
         item.title = item.title.trim() || 'More';
       } else {
+        const count = readCount(card);
         const images = readImages(card);
         // No images and no placeholder means the scrape missed, not an empty album.
-        const empty = !images.length && isEmptyAlbum(card);
+        const empty = !images.length && isEmptyAlbum(card, count);
         if (!images.length && !empty) continue;
 
         const rawTitle = readTitle(card);
         const pm = parsePrice(rawTitle);
-        const count = readCount(card);
 
         item = Object.assign(base, {
           empty,
@@ -297,9 +332,13 @@
 
   /* ---- 3. Rendering ---------------------------------------------------- */
 
-  const mounted = new Map();   // original grid element -> our .ygx-root element
+  const mounted = new Map();   // original grid element -> { root, gridEl, keys }
   let io = null;
   let lastSignature = '';
+  let mountedDesign = '';
+  // Module scope, because only one card can be hovered at a time and a per-card
+  // interval outlives its card: a removed node never fires mouseleave.
+  let cycleTimer = null;
 
   function lazyObserver() {
     if (io) return io;
@@ -334,6 +373,21 @@
     '<circle cx="15.5" cy="8.5" r="1.4"/>' +
     '<path d="M3.4 3.4l17.2 17.2"/></svg>';
 
+  // Shared by the empty-album card and by an image whose fallbacks all 404.
+  function emptyBox(label) {
+    const box = el('div', 'ygx-empty-box');
+    const icon = el('span', 'ygx-empty-icon');
+    icon.innerHTML = EMPTY_ICON;
+    box.appendChild(icon);
+    box.appendChild(el('span', 'ygx-empty-label', label));
+    return box;
+  }
+
+  function stopCycle() {
+    clearInterval(cycleTimer);
+    cycleTimer = null;
+  }
+
   function buildCard(item, design) {
     const a = el('a', 'ygx-card');
     a.href = item.href;
@@ -358,12 +412,7 @@
     if (item.empty) {
       // Media area again, so it survives the designs that hide the body.
       a.classList.add('is-empty');
-      const box = el('div', 'ygx-empty-box');
-      const icon = el('span', 'ygx-empty-icon');
-      icon.innerHTML = EMPTY_ICON;
-      box.appendChild(icon);
-      box.appendChild(el('span', 'ygx-empty-label', 'No photos'));
-      media.appendChild(box);
+      media.appendChild(emptyBox('No photos'));
     } else {
       img = el('img', 'ygx-img');
       img.alt = item.title;
@@ -378,8 +427,13 @@
       const chain = [first, item.images[1]].filter(Boolean);
       let step = 0;
       img.addEventListener('error', () => {
-        if (++step >= chain.length) return;
-        img.src = chain[step];
+        if (++step < chain.length) { img.src = chain[step]; return; }
+        // .ygx-img only fades in on load, so an exhausted chain would leave an
+        // invisible card. Fall back to the empty-album treatment instead.
+        if (io) io.unobserve(img);
+        img.remove();
+        a.classList.add('is-empty');
+        media.appendChild(emptyBox('Image unavailable'));
       });
       media.appendChild(img);
       lazyObserver().observe(img);
@@ -391,7 +445,7 @@
 
     const body = el('div', 'ygx-body');
     const title = el('div', 'ygx-title', item.title || '—');
-    title.title = item.title;
+    if (item.title) title.title = item.title;
     body.appendChild(title);
 
     const meta = el('div', 'ygx-meta');
@@ -414,18 +468,17 @@
     }
 
     if (design === 'showcase' && item.images.length > 1) {
-      let timer = null;
-      let i = 0;
       a.addEventListener('mouseenter', () => {
-        clearInterval(timer);
-        timer = setInterval(() => {
+        if (REDUCED.matches) return;
+        stopCycle();
+        let i = 0;
+        cycleTimer = setInterval(() => {
           i = (i + 1) % item.images.length;
           img.src = item.images[i];
         }, 900);
       });
       a.addEventListener('mouseleave', () => {
-        clearInterval(timer);
-        i = 0;
+        stopCycle();
         img.src = img.dataset.ygxFirst;
       });
     }
@@ -433,46 +486,89 @@
     return a;
   }
 
+  function unmountGroup(grid) {
+    const m = mounted.get(grid);
+    if (!m) return;
+    stopCycle();
+    m.root.remove();
+    grid.removeAttribute('data-ygx-hidden');
+    mounted.delete(grid);
+  }
+
   function teardown() {
-    mounted.forEach((root, grid) => {
-      root.remove();
-      grid.removeAttribute('data-ygx-hidden');
-    });
-    mounted.clear();
+    Array.from(mounted.keys()).forEach(unmountGroup);
     if (io) { io.disconnect(); io = null; }
+  }
+
+  function mountGroup(grid, items) {
+    const root = el('div', 'ygx-root');
+    const gridEl = el('div', 'ygx-grid');
+    gridEl.setAttribute('data-design', state.design);
+    const frag = document.createDocumentFragment();
+    items.forEach(it => frag.appendChild(buildCard(it, state.design)));
+    gridEl.appendChild(frag);
+    root.appendChild(gridEl);
+
+    // Sit exactly where the original grid sits, so category headings,
+    // pagination and the rest of the page keep their position.
+    grid.parentElement.insertBefore(root, grid);
+    grid.setAttribute('data-ygx-hidden', '1');
+    mounted.set(grid, { root, gridEl, keys: items.map(i => i.href) });
+  }
+
+  // Same cards in the same order means the mounted DOM is still correct, and a
+  // pure append only builds the tail. Rebuilding re-decodes every image, which
+  // is what made a mutation-triggered render so expensive.
+  function reconcile(m, items) {
+    if (!m.root.isConnected || items.length < m.keys.length) return false;
+    for (let i = 0; i < m.keys.length; i++) {
+      if (m.keys[i] !== items[i].href) return false;
+    }
+    if (items.length > m.keys.length) {
+      const frag = document.createDocumentFragment();
+      items.slice(m.keys.length).forEach(it => frag.appendChild(buildCard(it, state.design)));
+      m.gridEl.appendChild(frag);
+      m.keys = items.map(i => i.href);
+    }
+    return true;
   }
 
   function render(force) {
     if (!state.enabled) return;
     const groups = scrapeGroups();
-    if (!groups.length) return;
+    // Torn down before the early return: an empty scrape means the page changed
+    // under us, not that the cards we mounted are still valid.
+    if (!groups.length) { teardown(); lastSignature = ''; return; }
 
     const sig = signature(groups);
-    if (!force && sig === lastSignature) return;
-    lastSignature = sig;
+    // Liveness is part of the check. Yupoo can replace its grid with an
+    // identical list, which leaves the signature equal and our roots detached.
+    const live = mounted.size > 0 && Array.from(mounted.keys()).every(g => g.isConnected);
+    if (!force && sig === lastSignature && live) return;
 
-    teardown();
+    // buildCard bakes the design into each card, so a design change is the one
+    // case that cannot reconcile.
+    if (force || mountedDesign !== state.design) teardown();
 
+    const keep = new Set();
     for (const { grid, items } of groups) {
-      const root = el('div', 'ygx-root');
-      const gridEl = el('div', 'ygx-grid');
-      gridEl.setAttribute('data-design', state.design);
-      const frag = document.createDocumentFragment();
-      items.forEach(it => frag.appendChild(buildCard(it, state.design)));
-      gridEl.appendChild(frag);
-      root.appendChild(gridEl);
-
-      // Sit exactly where the original grid sits, so category headings,
-      // pagination and the rest of the page keep their position.
-      grid.parentElement.insertBefore(root, grid);
-      grid.setAttribute('data-ygx-hidden', '1');
-      mounted.set(grid, root);
+      keep.add(grid);
+      const m = mounted.get(grid);
+      if (m && reconcile(m, items)) continue;
+      unmountGroup(grid);
+      mountGroup(grid, items);
     }
+    // Sections the page no longer has.
+    Array.from(mounted.keys()).forEach(g => { if (!keep.has(g)) unmountGroup(g); });
 
+    mountedDesign = state.design;
     applyDensity();
     // Roots are inserted before their hidden grid, so a rebuild would otherwise
     // leave the sentinel stranded above the gallery and permanently in view.
     placeSentinel();
+    // Committed last: a throw above must not record a signature that stops the
+    // next render from retrying.
+    lastSignature = sig;
   }
 
   function signature(groups) {
@@ -538,7 +634,7 @@
     // Anchor to the hidden grid, not the root: roots insert before their grid,
     // so the root's slot is where the next rebuild hoists it above the cards.
     let anchor = last;
-    mounted.forEach((root, grid) => { if (root === last) anchor = grid; });
+    mounted.forEach((m, grid) => { if (m.root === last) anchor = grid; });
     anchor.parentElement.insertBefore(endless.node, anchor.nextSibling);
     if (!endless.io) {
       endless.io = new IntersectionObserver(es => {
@@ -551,25 +647,6 @@
     endless.io.observe(endless.node);
   }
 
-  // Appends only what the fetch added. A full render(true) per page rebuilt every
-  // card and re-decoded every image, which is what froze the tab.
-  function renderAppended() {
-    const groups = scrapeGroups();
-    if (!groups.length) return;
-    for (const { grid, items } of groups) {
-      const root = mounted.get(grid);
-      if (!root) { lastSignature = ''; render(true); return; }
-      const gridEl = root.firstElementChild;
-      const have = gridEl.children.length;
-      if (items.length <= have) continue;
-      const frag = document.createDocumentFragment();
-      items.slice(have).forEach(it => frag.appendChild(buildCard(it, state.design)));
-      gridEl.appendChild(frag);
-    }
-    lastSignature = signature(groups);
-    placeSentinel();
-  }
-
   async function loadNextPage() {
     if (endless.busy || endless.paused || !endless.url || !state.endless || !state.enabled) return;
     endless.busy = true;
@@ -578,7 +655,11 @@
 
     let doc;
     try {
-      const res = await fetch(endless.url, { credentials: 'same-origin' });
+      // Bounded: a hung request would otherwise pin busy=true with no retry.
+      const res = await fetch(endless.url, {
+        credentials: 'same-origin',
+        signal: window.AbortSignal.timeout(15000)
+      });
       if (!res.ok) throw new Error(String(res.status));
       doc = new DOMParser().parseFromString(await res.text(), 'text/html');
     } catch {
@@ -614,7 +695,8 @@
     endless.busy = false;
     endless.pages++;
     endless.paused = endless.pages >= MAX_PAGES && !!endless.url;
-    renderAppended();
+    // render() reconciles, so an appended page only builds the cards it added.
+    render(false);
     if (endless.paused) endlessStatus('Paused after ' + endless.pages + ' pages. Click to load more.');
     else endlessStatus(endless.url ? '' : 'End of results');
   }
@@ -656,7 +738,6 @@
     const min = Math.round(d.min * state.density);
     const root = document.documentElement;
     root.style.setProperty('--ygx-min', min + 'px');
-    root.style.setProperty('--ygx-cols', String(Math.max(1, Math.round(6 / state.density))));
   }
 
   function applyWiden() {
@@ -736,16 +817,20 @@
   let panel = null;
 
   function buildPanel() {
+    if (panel) return;
     panel = el('div', 'ygx-panel');
     panel.id = 'ygx-panel';
+    // Persisted like every other setting, rather than reopening each page.
+    panel.classList.toggle('is-collapsed', state.collapsed);
 
     const head = el('div', 'ygx-panel-head');
     head.appendChild(el('span', 'ygx-panel-title', 'Gallery UI+'));
-    const collapse = el('button', 'ygx-icon-btn', '−');
+    const collapse = el('button', 'ygx-icon-btn', state.collapsed ? '+' : '−');
     collapse.title = 'Collapse';
     collapse.addEventListener('click', () => {
-      panel.classList.toggle('is-collapsed');
-      collapse.textContent = panel.classList.contains('is-collapsed') ? '+' : '−';
+      state.collapsed = panel.classList.toggle('is-collapsed');
+      store.set('collapsed', state.collapsed);
+      collapse.textContent = state.collapsed ? '+' : '−';
     });
     head.appendChild(collapse);
     panel.appendChild(head);
@@ -838,10 +923,9 @@
       t.textContent = state.enabled ? 'Restore original layout' : 'Enable Gallery UI+';
       t.classList.toggle('is-off', !state.enabled);
     }
-    panel.querySelectorAll('.ygx-designs, .ygx-row').forEach(n => {
-      n.style.opacity = state.enabled ? '1' : '0.4';
-      n.style.pointerEvents = state.enabled ? '' : 'none';
-    });
+    // A class, not inline styles: the dim value belongs in the stylesheet, and
+    // this way the theme buttons dim with everything else.
+    panel.classList.toggle('is-disabled', !state.enabled);
   }
 
   /* ---- 5. Styles ------------------------------------------------------- */
@@ -867,7 +951,8 @@
   /* ---- Page chrome: header stack, broadcast bar, paginator, footer ---- */
 
   /* On :root, not .ygx-root: the chrome sits outside the grid and cannot
-     inherit from it. Light re-declares only these, so few rules need a twin. */
+     inherit from it. Every chrome colour is a token, so the light theme is a
+     re-declaration of this block plus the image-based exceptions. */
   :root {
     --ygx-page:     #0f1116;
     --ygx-bar:      #191c24;
@@ -877,6 +962,32 @@
     --ygx-bar-dim:  #97a0b2;
     --ygx-bar-acc:  #3fbb85;
     --ygx-bar-on:   #06120c;
+    --ygx-drop:     rgba(0,0,0,.5);
+    /* Sidebar and sub-category row */
+    --ygx-bar-strong:     #ffffff;
+    --ygx-bar-active:     #e9ecf3;
+    --ygx-bar-head:       #dfe4ee;
+    --ygx-bar-item:       #b9c1d0;
+    --ygx-bar-link:       #c3cad8;
+    --ygx-bar-sub:        #8e97a8;
+    --ygx-bar-hover:      #232833;
+    --ygx-bar-hover-line: #3a4152;
+    --ygx-bar-thumb:      #39404f;
+    --ygx-bar-off:        #5b6474;
+    /* The accent as text is a darker green than the accent as a surface once
+       the theme flips, so the two are separate tokens. */
+    --ygx-bar-acc-text:   #3fbb85;
+    --ygx-bar-acc-wash:   rgba(63,187,133,.14);
+    /* Control panel */
+    --ygx-panel-bg:         rgba(20,23,30,.96);
+    --ygx-panel-line:       #2c313d;
+    --ygx-panel-head-line:  #262b36;
+    --ygx-panel-btn:        #232833;
+    --ygx-panel-btn-hover:  #2b313e;
+    --ygx-panel-icon-hover: #262b36;
+    --ygx-panel-note:       #6b7488;
+    --ygx-panel-off:        #5c6577;
+    --ygx-panel-shadow:     rgba(0,0,0,.55);
   }
 
   html[data-ygx-on] { background: var(--ygx-page) !important; }
@@ -941,7 +1052,7 @@
   [data-ygx-on] .showheader__category_new {
     background: var(--ygx-bar) !important;
     border: 1px solid var(--ygx-bar-line) !important;
-    box-shadow: 0 12px 30px rgba(0,0,0,.5) !important;
+    box-shadow: 0 12px 30px var(--ygx-drop) !important;
   }
   /* Swept, not named: the tree's text is #494949, so anything missed once the
      panel goes dark would be dark-on-dark. */
@@ -997,7 +1108,7 @@
   [data-ygx-on] .pagination__disabled:hover,
   [data-ygx-on] .pagination__disabled i {
     border-color: var(--ygx-bar-line) !important;
-    color: #5b6474 !important;
+    color: var(--ygx-bar-off) !important;
   }
   [data-ygx-on] .pagination__jumpwrap,
   [data-ygx-on] .pagination__jumpwrap span { color: var(--ygx-bar-dim) !important; }
@@ -1041,8 +1152,8 @@
 
   /* ---- /categories sidebar (tree shape is in CLAUDE.md) ---------------- */
   [data-ygx-on] .categories__box-left {
-    background: #191c24 !important;
-    border: 1px solid #2a2f3b !important;
+    background: var(--ygx-bar) !important;
+    border: 1px solid var(--ygx-bar-line) !important;
     border-radius: 14px !important;
     padding: 6px !important;
     overflow: hidden auto !important;
@@ -1050,14 +1161,14 @@
     top: 10px;
     max-height: calc(100vh - 28px);
     scrollbar-width: thin;
-    scrollbar-color: #39404f transparent;
+    scrollbar-color: var(--ygx-bar-thumb) transparent;
     /* Reserve the track: without it a 1px hover height change toggles the
        scrollbar and reflows the column, which reads as every row jittering. */
     scrollbar-gutter: stable;
   }
   [data-ygx-on] .categories__box-left::-webkit-scrollbar { width: 8px; }
   [data-ygx-on] .categories__box-left::-webkit-scrollbar-thumb {
-    background: #39404f; border-radius: 99px; border: 2px solid #191c24;
+    background: var(--ygx-bar-thumb); border-radius: 99px; border: 2px solid var(--ygx-bar);
   }
   [data-ygx-on] .categories__box-left::-webkit-scrollbar-track { background: transparent; }
 
@@ -1086,7 +1197,7 @@
     cursor: pointer;
     transition: background .15s;
   }
-  [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover { background: #232833 !important; }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover { background: var(--ygx-bar-hover) !important; }
   [data-ygx-on] .categories__box-left .yupoo-collapse-header > a {
     display: inline-block;
     max-width: 100%;
@@ -1094,7 +1205,7 @@
     /* Parents read as headings: larger, heavier, brighter than their children. */
     font-size: 13px !important;
     line-height: 1.4 !important;
-    color: #dfe4ee !important;
+    color: var(--ygx-bar-head) !important;
     text-decoration: none !important;
     vertical-align: middle;
     /* Pinned so a hover bolding from Yupoo's stylesheet can't change the
@@ -1102,21 +1213,21 @@
     font-weight: 600 !important;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  [data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover { color: #fff !important; }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover { color: var(--ygx-bar-strong) !important; }
 
   [data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header {
-    background: rgba(63,187,133,.14) !important;
-    box-shadow: inset 2px 0 0 #3fbb85;
+    background: var(--ygx-bar-acc-wash) !important;
+    box-shadow: inset 2px 0 0 var(--ygx-bar-acc);
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header > a {
-    color: #3fbb85 !important; font-weight: 600 !important;
+    color: var(--ygx-bar-acc-text) !important; font-weight: 600 !important;
   }
   /* Children hang off a guide rail rather than relying on indent alone, so the
      nesting is legible at a glance instead of being inferred from padding. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-box {
     margin: 2px 0 6px 17px !important;
     padding: 0 0 0 10px !important;
-    border-left: 1px solid #2a2f3b !important;
+    border-left: 1px solid var(--ygx-bar-line) !important;
   }
 
   [data-ygx-on] .categories__box-left .yupoo-collapse-content,
@@ -1134,25 +1245,25 @@
     line-height: 1.5 !important;
     min-height: 0 !important;
     font-weight: 400 !important;
-    color: #8e97a8 !important;
+    color: var(--ygx-bar-sub) !important;
     text-decoration: none !important;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     transition: background .15s, color .15s;
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-item:hover {
-    background: #232833 !important; color: #e9ecf3 !important;
+    background: var(--ygx-bar-hover) !important; color: var(--ygx-bar-active) !important;
   }
   /* The active child link carries .yupoo-collapse-content-item-selected. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected,
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected:hover {
-    color: #3fbb85 !important;
+    color: var(--ygx-bar-acc-text) !important;
     font-weight: 600 !important;
-    background: rgba(63,187,133,.12) !important;
-    box-shadow: inset 2px 0 0 #3fbb85;
+    background: var(--ygx-bar-acc-wash) !important;
+    box-shadow: inset 2px 0 0 var(--ygx-bar-acc);
   }
   /* Parent of the open branch, so the trail to the current page reads. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-item-active > .yupoo-collapse-header > a {
-    color: #e9ecf3 !important;
+    color: var(--ygx-bar-active) !important;
   }
 
   /* The chevron is a ::after at right:16px width:12px, so it reaches 28px in;
@@ -1208,19 +1319,22 @@
     display: inline-block;
     padding: 5px 12px !important;
     border-radius: 999px;
-    background: #191c24;
-    border: 1px solid #2a2f3b;
+    background: var(--ygx-bar);
+    border: 1px solid var(--ygx-bar-line);
     font-size: 12.5px !important;
     line-height: 1.44 !important;
-    color: #b9c1d0 !important;
+    color: var(--ygx-bar-item) !important;
     text-decoration: none !important;
     transition: background .15s, border-color .15s, color .15s;
   }
   [data-ygx-on] .categories__box-right-category-item:hover {
-    background: #232833; border-color: #3a4152; color: #fff !important;
+    background: var(--ygx-bar-hover);
+    border-color: var(--ygx-bar-hover-line);
+    color: var(--ygx-bar-strong) !important;
   }
   [data-ygx-on] .categories__box-right-category-item.ygx-here {
-    background: #3fbb85; border-color: #3fbb85; color: #07130d !important; font-weight: 600;
+    background: var(--ygx-bar-acc); border-color: var(--ygx-bar-acc);
+    color: var(--ygx-bar-on) !important; font-weight: 600;
   }
   /* Two pill rows of 30px plus one 8px gap, replacing Yupoo's 94px cut. */
   [data-ygx-on] .categories__box-right-categories-wrap.is-fold .categories__box-right-categories {
@@ -1228,27 +1342,37 @@
   }
   [data-ygx-on] .categories__box-right-categories-toggle {
     top: 6px !important; right: 24px !important;
-    font-size: 12px !important; color: #97a0b2 !important; cursor: pointer;
+    font-size: 12px !important; color: var(--ygx-bar-dim) !important; cursor: pointer;
   }
-  [data-ygx-on] .categories__box-right-categories-toggle:hover { color: #3fbb85 !important; }
+  [data-ygx-on] .categories__box-right-categories-toggle:hover { color: var(--ygx-bar-acc-text) !important; }
 
   /* Header row above the grid: total count + pagination */
   [data-ygx-on] .categories__box-right-total,
   [data-ygx-on] .categories__box-right-pagination-span {
-    color: #8e97a8 !important; font-size: 12.5px !important;
+    color: var(--ygx-bar-sub) !important; font-size: 12.5px !important;
   }
-  [data-ygx-on] .categories__box-right-pagination a { color: #c3cad8 !important; }
-  [data-ygx-on] .categories__box-right-pagination a:hover { color: #3fbb85 !important; }
+  [data-ygx-on] .categories__box-right-pagination a { color: var(--ygx-bar-link) !important; }
+  [data-ygx-on] .categories__box-right-pagination a:hover { color: var(--ygx-bar-acc-text) !important; }
 
-  :root { --ygx-min: 260px; --ygx-cols: 6; }
+  :root { --ygx-min: 260px; }
 
   .ygx-root {
     --ygx-card:    #191c24;
     --ygx-card-hi: #212530;
     --ygx-line:    #2a2f3b;
+    --ygx-line-hi: #3a4152;
     --ygx-text:    #e9ecf3;
     --ygx-muted:   #97a0b2;
-    --ygx-accent:  #3fbb85;
+    /* The accent as text sits on a wash; as a surface it carries text. They
+       diverge in light, so the badge does not read the text green. */
+    --ygx-accent:      #3fbb85;
+    --ygx-accent-bg:   #3fbb85;
+    --ygx-on-accent:   #06120c;
+    --ygx-accent-wash: rgba(63,187,133,.08);
+    --ygx-shot:        #0b0d12;
+    --ygx-badge:       rgba(10,12,18,.72);
+    --ygx-badge-text:  #dfe4ee;
+    --ygx-shadow:      0 14px 34px rgba(0,0,0,.45);
     box-sizing: border-box;
     width: 100%;
     padding: 8px 24px 28px;
@@ -1283,12 +1407,12 @@
   }
   .ygx-card:hover {
     background: var(--ygx-card-hi);
-    border-color: #3a4152;
+    border-color: var(--ygx-line-hi);
     transform: translateY(-3px);
-    box-shadow: 0 14px 34px rgba(0,0,0,.45);
+    box-shadow: var(--ygx-shadow);
   }
 
-  .ygx-media { position: relative; overflow: hidden; background: #0b0d12; flex: 0 0 auto; }
+  .ygx-media { position: relative; overflow: hidden; background: var(--ygx-shot); flex: 0 0 auto; }
   .ygx-img {
     display: block; width: 100%; height: 100%; object-fit: cover;
     opacity: 0; transition: opacity .35s ease, transform .5s cubic-bezier(.2,.7,.3,1);
@@ -1306,13 +1430,13 @@
     position: absolute; right: 8px; bottom: 8px;
     padding: 2px 7px; border-radius: 999px;
     font-size: 11px; font-weight: 600; line-height: 1.5;
-    color: #dfe4ee; background: rgba(10,12,18,.72); z-index: 3;
+    color: var(--ygx-badge-text); background: var(--ygx-badge); z-index: 3;
   }
   .ygx-price-float {
     position: absolute; left: 8px; top: 8px;
     padding: 4px 10px; border-radius: 999px;
     font-size: 12px; font-weight: 700; letter-spacing: .2px;
-    color: #06120c; background: var(--ygx-accent);
+    color: var(--ygx-on-accent); background: var(--ygx-accent-bg);
     box-shadow: 0 2px 10px rgba(0,0,0,.35); z-index: 3; display: none;
   }
 
@@ -1332,7 +1456,7 @@
   .ygx-thumb {
     flex: 0 0 calc(25% - 3px); max-width: calc(25% - 3px);
     aspect-ratio: 1/1; object-fit: cover;
-    border-radius: 5px; background: #0b0d12; opacity: .78; transition: opacity .2s;
+    border-radius: 5px; background: var(--ygx-shot); opacity: .78; transition: opacity .2s;
   }
   .ygx-card:hover .ygx-thumb { opacity: 1; }
 
@@ -1349,7 +1473,7 @@
   /* ---- "More" tile ----------------------------------------------------- */
   .ygx-card.is-more { background: transparent; border-color: var(--ygx-accent); }
   .ygx-card.is-more:hover {
-    background: rgba(63,187,133,.08);
+    background: var(--ygx-accent-wash);
     border-color: var(--ygx-accent);
     box-shadow: none;
   }
@@ -1405,11 +1529,12 @@
   }
 
   /* ---- 4. Masonry ------------------------------------------------------ */
-  .ygx-grid[data-design="masonry"] { display: block; column-count: var(--ygx-cols); column-gap: 16px; }
-  @media (max-width: 1500px) { .ygx-grid[data-design="masonry"] { column-count: 5; } }
-  @media (max-width: 1200px) { .ygx-grid[data-design="masonry"] { column-count: 4; } }
-  @media (max-width: 900px)  { .ygx-grid[data-design="masonry"] { column-count: 3; } }
-  @media (max-width: 620px)  { .ygx-grid[data-design="masonry"] { column-count: 2; } }
+  /* column-width is the multi-column form of minmax(var(--ygx-min), 1fr), so
+     Masonry answers to the density slider exactly like the grid designs. Fixed
+     column-count breakpoints used to override the slider below 1500px. */
+  .ygx-grid[data-design="masonry"] {
+    display: block; column-width: var(--ygx-min); column-count: auto; column-gap: 16px;
+  }
   .ygx-grid[data-design="masonry"] .ygx-card {
     break-inside: avoid; display: inline-block; width: 100%; margin: 0 0 16px; border-radius: 12px;
   }
@@ -1459,20 +1584,23 @@
     display: flex; align-items: center; justify-content: center;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
-  .ygx-endless-text { font-size: 12px; color: #97a0b2; letter-spacing: .2px; }
+  .ygx-endless-text { font-size: 12px; color: var(--ygx-bar-dim); letter-spacing: .2px; }
   .ygx-endless.is-paused { cursor: pointer; }
-  .ygx-endless.is-paused .ygx-endless-text { color: #3fbb85; }
-  [data-ygx-theme="light"] .ygx-endless.is-paused .ygx-endless-text { color: #0f8f5f; }
+  .ygx-endless.is-paused .ygx-endless-text { color: var(--ygx-bar-acc-text); }
 
   /* ---- Control panel --------------------------------------------------- */
   .ygx-panel {
     position: fixed; right: 18px; bottom: 18px; z-index: 2147483000;
     width: 246px; border-radius: 14px; overflow: hidden;
-    background: rgba(20,23,30,.96); border: 1px solid #2c313d;
-    box-shadow: 0 18px 44px rgba(0,0,0,.55); color: #e9ecf3;
+    background: var(--ygx-panel-bg); border: 1px solid var(--ygx-panel-line);
+    box-shadow: 0 18px 44px var(--ygx-panel-shadow); color: var(--ygx-bar-text);
     font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   .ygx-panel * { box-sizing: border-box; }
+  /* Dimmed by class, so the value lives here and the theme buttons dim too. */
+  .ygx-panel.is-disabled .ygx-designs,
+  .ygx-panel.is-disabled .ygx-themes,
+  .ygx-panel.is-disabled .ygx-row { opacity: .4; pointer-events: none; }
 
   /* Host-page armour: "all: unset" resets only the base state, so a Yupoo
      button:hover rule still shifts our geometry. Pinned across every state. */
@@ -1510,51 +1638,65 @@
   .ygx-panel .ygx-icon-btn:hover { padding: 0 !important; width: 22px !important; height: 22px !important; }
   .ygx-panel-head {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 10px 9px 12px; border-bottom: 1px solid #262b36;
+    padding: 9px 10px 9px 12px; border-bottom: 1px solid var(--ygx-panel-head-line);
   }
   .ygx-panel-title { font-weight: 700; letter-spacing: .3px; font-size: 12px; }
   .ygx-icon-btn {
     all: unset; cursor: pointer; width: 22px; height: 22px; border-radius: 6px;
     display: grid; place-items: center; color: #97a0b2; font-size: 15px;
   }
-  .ygx-icon-btn:hover { background: #262b36; color: #fff; }
+  .ygx-icon-btn:hover { background: var(--ygx-panel-icon-hover); color: var(--ygx-bar-strong); }
   .ygx-panel.is-collapsed .ygx-panel-body { display: none; }
   .ygx-panel-body { padding: 11px 12px 13px; display: flex; flex-direction: column; gap: 10px; }
   .ygx-designs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .ygx-design-btn {
     all: unset; cursor: pointer; text-align: center; padding: 7px 6px; border-radius: 8px;
-    font-size: 11.5px; font-weight: 600; background: #232833; color: #b9c1d0;
+    font-size: 11.5px; font-weight: 600;
+    background: var(--ygx-panel-btn); color: var(--ygx-bar-item);
     transition: background .15s, color .15s;
   }
-  .ygx-design-btn:hover { background: #2b313e; color: #fff; }
-  .ygx-design-btn.is-active { background: #3fbb85; color: #07130d; }
+  .ygx-design-btn:hover { background: var(--ygx-panel-btn-hover); color: var(--ygx-bar-strong); }
+  .ygx-design-btn.is-active { background: var(--ygx-bar-acc); color: var(--ygx-bar-on); }
   .ygx-designs .ygx-design-btn:nth-child(5) { grid-column: 1 / -1; }
+
+  .ygx-themes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .ygx-theme-btn {
+    all: unset; cursor: pointer; text-align: center; padding: 6px; border-radius: 8px;
+    font-size: 11.5px; font-weight: 600;
+    background: var(--ygx-panel-btn); color: var(--ygx-bar-item);
+    transition: background .15s, color .15s;
+  }
+  .ygx-theme-btn:hover { background: var(--ygx-panel-btn-hover); color: var(--ygx-bar-strong); }
+  .ygx-theme-btn.is-active { background: var(--ygx-bar-acc); color: var(--ygx-bar-on); }
   .ygx-row { display: flex; align-items: center; gap: 9px; }
   .ygx-check { cursor: pointer; }
-  .ygx-check input { accent-color: #3fbb85; margin: 0; }
-  .ygx-row-label { color: #97a0b2; font-size: 11px; white-space: nowrap; }
+  .ygx-check input { accent-color: var(--ygx-bar-acc); margin: 0; }
+  .ygx-row-label { color: var(--ygx-bar-dim); font-size: 11px; white-space: nowrap; }
   /* Shelved setting: visible so it is not forgotten, but not operable. */
   .ygx-row.ygx-shelved { cursor: not-allowed; }
-  .ygx-row.ygx-shelved .ygx-row-label { color: #5c6577; }
+  .ygx-row.ygx-shelved .ygx-row-label { color: var(--ygx-panel-off); }
   .ygx-note {
-    margin-left: auto; font-size: 10px; letter-spacing: .3px; color: #6b7488;
-    border: 1px solid #2c313d; border-radius: 5px; padding: 1px 5px;
+    margin-left: auto; font-size: 10px; letter-spacing: .3px; color: var(--ygx-panel-note);
+    border: 1px solid var(--ygx-panel-line); border-radius: 5px; padding: 1px 5px;
   }
-  .ygx-range { flex: 1; accent-color: #3fbb85; }
+  .ygx-range { flex: 1; accent-color: var(--ygx-bar-acc); }
   .ygx-toggle {
     all: unset; cursor: pointer; text-align: center; padding: 7px; border-radius: 8px;
-    font-size: 11.5px; font-weight: 600; background: #232833; color: #97a0b2; border: 1px solid #2c313d;
+    font-size: 11.5px; font-weight: 600;
+    background: var(--ygx-panel-btn); color: #97a0b2;
+    border: 1px solid var(--ygx-panel-line);
   }
-  .ygx-toggle:hover { background: #2b313e; color: #fff; }
-  .ygx-toggle.is-off { background: #3fbb85; color: #07130d; border-color: transparent; }
+  .ygx-toggle:hover { background: var(--ygx-panel-btn-hover); color: var(--ygx-bar-strong); }
+  .ygx-toggle.is-off { background: var(--ygx-bar-acc); color: var(--ygx-bar-on); border-color: transparent; }
 
-  /* ---- Light theme (default): overrides the dark values above ----------- */
+  /* ---- Light theme (default): two token blocks and five exceptions ------ */
 
   /* Surfaces only. Scrim overlays keep white-on-gradient in both themes,
      because that text sits on the photograph rather than on the card. */
 
-  /* Flipping these re-themes the whole chrome; only image-based bits need their
-     own rule. Qualified with :root so it outranks dark on specificity. */
+  /* Flipping these re-themes the whole chrome. What is left below is only what
+     a token cannot express: a baked-in PNG, or a pre-inverted background image.
+     Qualified with :root so it outranks dark on specificity, not source order. */
   :root[data-ygx-theme="light"] {
     --ygx-page:     #f6f7f9;
     --ygx-bar:      #ffffff;
@@ -1564,6 +1706,28 @@
     --ygx-bar-dim:  #667085;
     --ygx-bar-acc:  #16a06a;
     --ygx-bar-on:   #ffffff;
+    --ygx-drop:     rgba(16,24,40,.14);
+    --ygx-bar-strong:     #101828;
+    --ygx-bar-active:     #101828;
+    --ygx-bar-head:       #475467;
+    --ygx-bar-item:       #475467;
+    --ygx-bar-link:       #475467;
+    --ygx-bar-sub:        #667085;
+    --ygx-bar-hover:      #f4f6f8;
+    --ygx-bar-hover-line: #cfd4dc;
+    --ygx-bar-thumb:      #cfd4dc;
+    --ygx-bar-off:        #b8c0cd;
+    --ygx-bar-acc-text:   #0f8f5f;
+    --ygx-bar-acc-wash:   rgba(22,160,106,.10);
+    --ygx-panel-bg:         rgba(255,255,255,.97);
+    --ygx-panel-line:       #e4e7ec;
+    --ygx-panel-head-line:  #eaecf0;
+    --ygx-panel-btn:        #f2f4f7;
+    --ygx-panel-btn-hover:  #e9ecf1;
+    --ygx-panel-icon-hover: #f2f4f7;
+    --ygx-panel-note:       #98a2b3;
+    --ygx-panel-off:        #98a2b3;
+    --ygx-panel-shadow:     rgba(16,24,40,.18);
   }
   /* A white logo on a white bar, so it has to flip here and only here. */
   [data-ygx-theme="light"][data-ygx-on] .header__logo img { filter: invert(1); }
@@ -1571,58 +1735,26 @@
   [data-ygx-theme="light"][data-ygx-on] .search__searchIcon,
   [data-ygx-theme="light"][data-ygx-on] .showheader__category_collapse,
   [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination-button { filter: none; }
-  [data-ygx-theme="light"][data-ygx-on] .showheader__category_new {
-    box-shadow: 0 12px 30px rgba(16,24,40,.14) !important;
-  }
-  [data-ygx-theme="light"][data-ygx-on] .pagination__disabled,
-  [data-ygx-theme="light"][data-ygx-on] .pagination__disabled:hover,
-  [data-ygx-theme="light"][data-ygx-on] .pagination__disabled i { color: #b8c0cd !important; }
 
   [data-ygx-theme="light"] .ygx-root {
     --ygx-card:    #ffffff;
     --ygx-card-hi: #ffffff;
     --ygx-line:    #e4e7ec;
+    --ygx-line-hi: #cfd4dc;
     --ygx-text:    #1c2024;
     --ygx-muted:   #667085;
-    --ygx-accent:  #0f8f5f;
+    --ygx-accent:      #0f8f5f;
+    --ygx-accent-bg:   #16a06a;
+    --ygx-on-accent:   #ffffff;
+    --ygx-accent-wash: rgba(22,160,106,.07);
+    --ygx-shot:        #f2f4f7;
+    --ygx-badge:       rgba(255,255,255,.92);
+    --ygx-badge-text:  #344054;
+    --ygx-shadow:      0 12px 28px rgba(16,24,40,.14);
   }
-  [data-ygx-theme="light"] .ygx-media,
-  [data-ygx-theme="light"] .ygx-thumb { background: #f2f4f7; }
-  [data-ygx-theme="light"] .ygx-card:hover {
-    border-color: #cfd4dc;
-    box-shadow: 0 12px 28px rgba(16,24,40,.14);
-  }
-  [data-ygx-theme="light"] .ygx-count { background: rgba(255,255,255,.92); color: #344054; }
-  [data-ygx-theme="light"] .ygx-price-float { background: #16a06a; color: #fff; }
-  [data-ygx-theme="light"] .ygx-card.is-more:hover { background: rgba(22,160,106,.07); }
 
-  /* Sidebar */
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left {
-    background: #ffffff !important; border-color: #e4e7ec !important;
-    scrollbar-color: #cfd4dc transparent;
-  }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left::-webkit-scrollbar-thumb {
-    background: #cfd4dc; border-color: #ffffff;
-  }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-header:hover { background: #f4f6f8 !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-header > a { color: #475467 !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover { color: #101828 !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header {
-    background: rgba(22,160,106,.10) !important; box-shadow: inset 2px 0 0 #16a06a;
-  }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header > a { color: #0f8f5f !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-item-active > .yupoo-collapse-header > a { color: #101828 !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-box { border-left-color: #e4e7ec !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item { color: #667085 !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item:hover {
-    background: #f4f6f8 !important; color: #101828 !important;
-  }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected,
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected:hover {
-    color: #0f8f5f !important;
-    background: rgba(22,160,106,.10) !important;
-    box-shadow: inset 2px 0 0 #16a06a;
-  }
+  /* The sidebar toggle's icon is a background image, so its colours are
+     pre-inverted in the dark rules and cannot be read from a token. */
   [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-hide-sidebar,
   [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-show-sidebar {
     filter: none; background-color: #fff !important; border-color: #e4e7ec !important;
@@ -1632,57 +1764,23 @@
     background-color: #f4f6f8 !important; border-color: #cfd4dc !important;
   }
 
-  /* Sub-category pills */
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-category-item {
-    background: #fff; border-color: #e4e7ec; color: #475467 !important;
-  }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-category-item:hover {
-    background: #f4f6f8; border-color: #cfd4dc; color: #101828 !important;
-  }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-category-item.ygx-here {
-    background: #16a06a; border-color: #16a06a; color: #fff !important;
-  }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-categories-toggle { color: #667085 !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-categories-toggle:hover { color: #0f8f5f !important; }
+  /* The only panel colour that is not a token: its dim is a step darker than
+     --ygx-bar-dim, which the rest of the light chrome uses. */
+  [data-ygx-theme="light"] .ygx-toggle { color: #475467; }
 
-  [data-ygx-theme="light"] .ygx-endless-text { color: #667085; }
+  /* ---- Motion ----------------------------------------------------------- */
 
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-total,
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination-span { color: #667085 !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination a { color: #475467 !important; }
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination a:hover { color: #0f8f5f !important; }
-
-  /* Control panel */
-  [data-ygx-theme="light"] .ygx-panel {
-    background: rgba(255,255,255,.97); border-color: #e4e7ec; color: #1c2024;
-    box-shadow: 0 18px 44px rgba(16,24,40,.18);
+  @media (prefers-reduced-motion: reduce) {
+    .ygx-root *, .ygx-panel * { transition: none !important; animation: none !important; }
+    .ygx-card:hover { transform: none; }
+    .ygx-card:hover .ygx-img { transform: none; }
   }
-  [data-ygx-theme="light"] .ygx-panel-head { border-bottom-color: #eaecf0; }
-  [data-ygx-theme="light"] .ygx-icon-btn:hover { background: #f2f4f7; color: #101828; }
-  [data-ygx-theme="light"] .ygx-design-btn { background: #f2f4f7; color: #475467; }
-  [data-ygx-theme="light"] .ygx-design-btn:hover { background: #e9ecf1; color: #101828; }
-  [data-ygx-theme="light"] .ygx-design-btn.is-active { background: #16a06a; color: #fff; }
-  [data-ygx-theme="light"] .ygx-row-label { color: #667085; }
-  [data-ygx-theme="light"] .ygx-row.ygx-shelved .ygx-row-label { color: #98a2b3; }
-  [data-ygx-theme="light"] .ygx-note { color: #98a2b3; border-color: #e4e7ec; }
-  [data-ygx-theme="light"] .ygx-range,
-  [data-ygx-theme="light"] .ygx-check input { accent-color: #16a06a; }
-  [data-ygx-theme="light"] .ygx-toggle { background: #f2f4f7; color: #475467; border-color: #e4e7ec; }
-  [data-ygx-theme="light"] .ygx-toggle:hover { background: #e9ecf1; color: #101828; }
-  [data-ygx-theme="light"] .ygx-toggle.is-off { background: #16a06a; color: #fff; border-color: transparent; }
-  [data-ygx-theme="light"] .ygx-theme-btn { background: #f2f4f7; color: #475467; }
-  [data-ygx-theme="light"] .ygx-theme-btn.is-active { background: #16a06a; color: #fff; }
-
-  .ygx-themes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .ygx-theme-btn {
-    all: unset; cursor: pointer; text-align: center; padding: 6px; border-radius: 8px;
-    font-size: 11.5px; font-weight: 600; background: #232833; color: #b9c1d0;
-    transition: background .15s, color .15s;
-  }
-  .ygx-theme-btn.is-active { background: #3fbb85; color: #07130d; }
   `;
 
+  let cssDone = false;
   function injectCSS() {
+    if (cssDone) return;
+    cssDone = true;
     try { if (typeof GM_addStyle === 'function') { GM_addStyle(CSS); return; } } catch { /* noop */ }
     const s = document.createElement('style');
     s.id = 'ygx-style';
@@ -1692,35 +1790,25 @@
 
   /* ---- 6. Boot --------------------------------------------------------- */
 
-  function debounce(fn, ms) {
-    let t;
-    return function () { clearTimeout(t); t = setTimeout(fn, ms); };
+  // Trailing edge with a ceiling: a page that mutates faster than `ms` would
+  // otherwise defer the call indefinitely.
+  function debounce(fn, ms, maxWait) {
+    let t = 0;
+    let first = 0;
+    return function (...args) {
+      const run = () => { t = 0; first = 0; fn.apply(this, args); };
+      const now = Date.now();
+      if (!first) first = now;
+      clearTimeout(t);
+      if (maxWait && now - first >= maxWait) { run(); return; }
+      t = setTimeout(run, ms);
+    };
   }
 
-  // Needs no album cards, so it runs on every page. Behind the card check,
-  // gridless pages got no stylesheet at all and stayed white in dark mode.
-  function bootChrome() {
-    injectCSS();
-    applyTheme();
-    applyEnabledAttr();
-    applyEndlessAttr();
-    applyWiden();
-    applyDensity();
-    buildPanel();
-  }
-
-  function boot() {
-    if (!document.querySelector(CARD_SEL)) return false;
-    render(true);
-    syncSubcats();
-    startEndless();
-
-    // Capture on document, not window: Yupoo scrolls <body> as an overflow
-    // container, and scroll does not bubble, so a window listener never fires.
-    document.addEventListener('scroll', () => { endless.armed = true; },
-      { passive: true, capture: true });
-
-    const reflow = debounce(() => render(false), 250);
+  // The observer is what picks up a late-arriving grid, so it is installed
+  // unconditionally rather than behind a card check that may never pass.
+  function observeDom() {
+    const reflow = debounce(() => { render(false); syncSubcats(); }, 250, 1500);
     new MutationObserver((muts) => {
       for (const m of muts) {
         const t = m.target;
@@ -1729,25 +1817,43 @@
       }
     }).observe(document.body, { childList: true, subtree: true });
 
+    // Capture on document, not window: Yupoo scrolls <body> as an overflow
+    // container, and scroll does not bubble, so a window listener never fires.
+    document.addEventListener('scroll', () => { endless.armed = true; },
+      { passive: true, capture: true });
+
+    // Measured, not styled, so the sub-category fold has to be re-measured on
+    // any width change or the More toggle keeps its boot-time visibility.
+    window.addEventListener('resize', debounce(syncSubcats, 150, 600));
+
     let lastUrl = location.href;
     setInterval(() => {
-      if (location.href !== lastUrl) {
-        lastUrl = location.href;
-        lastSignature = '';
-        resetEndless();
-        setTimeout(() => { render(true); syncSubcats(); startEndless(); }, 400);
-      }
+      if (location.href === lastUrl) return;
+      lastUrl = location.href;
+      // Torn down now rather than after the settle delay, so the old page's
+      // cards never sit over the new one.
+      teardown();
+      lastSignature = '';
+      resetEndless();
+      setTimeout(() => { render(true); syncSubcats(); startEndless(); }, 400);
     }, 700);
-
-    return true;
   }
 
-  bootChrome();
+  // Runs whole on every page, cards or not. Behind a card check, gridless pages
+  // got no stylesheet at all and stayed white in dark mode.
+  function boot() {
+    injectCSS();
+    applyTheme();
+    applyEnabledAttr();
+    applyEndlessAttr();
+    applyWiden();
+    applyDensity();
+    buildPanel();
+    observeDom();
+    render(true);
+    syncSubcats();
+    startEndless();
+  }
 
-  let tries = 0;
-  (function waitForAlbums() {
-    if (boot()) return;
-    if (++tries > 40) return;  // ~10s
-    setTimeout(waitForAlbums, 250);
-  })();
+  boot();
 })();
