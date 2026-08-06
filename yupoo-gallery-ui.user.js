@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.6.3
-// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control, endless scroll.
+// @version      2.7.1
+// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
 // @grant        GM_setValue
@@ -928,6 +928,190 @@
   }
   [data-ygx-widen] .show-layout-category__catetitle { padding-left: 24px !important; }
 
+  /* ---- Page chrome -----------------------------------------------------
+   * Yupoo's own header stack, broadcast bar, paginator and footer, none of
+   * which was themed before: a dark gallery sat on a white page.
+   *
+   * These tokens live on :root rather than .ygx-root because the chrome sits
+   * outside the grid and so cannot inherit from it. Only the tokens are
+   * re-declared for light, which is why almost nothing below needs a twin.
+   * -------------------------------------------------------------------- */
+  :root {
+    --ygx-page:     #0f1116;
+    --ygx-bar:      #191c24;
+    --ygx-bar-alt:  #14171d;
+    --ygx-bar-line: #2a2f3b;
+    --ygx-bar-text: #e9ecf3;
+    --ygx-bar-dim:  #97a0b2;
+    --ygx-bar-acc:  #3fbb85;
+    --ygx-bar-on:   #06120c;
+  }
+
+  html[data-ygx-on] { background: var(--ygx-page) !important; }
+  html[data-ygx-on] body { background: transparent !important; }
+
+  /* Yupoo's own site bar, above the shop's. Its logo is a white PNG, so light
+     mode inverts the logo rather than darkening the bar to keep it legible. */
+  [data-ygx-on] .header__wrap {
+    background: var(--ygx-bar) !important;
+    border-bottom: 1px solid var(--ygx-bar-line) !important;
+  }
+  [data-ygx-on] .header__wrap,
+  [data-ygx-on] .header__login,
+  [data-ygx-on] .header__separator,
+  [data-ygx-on] .header__wrap a,
+  [data-ygx-on] .header__wrap i,
+  [data-ygx-on] .language__currentlang { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .header__wrap a:hover { color: var(--ygx-bar-text) !important; }
+  /* Language menu, which opens over the bar. */
+  [data-ygx-on] .header__wrap .language__link ul {
+    background: var(--ygx-bar) !important;
+    border: 1px solid var(--ygx-bar-line) !important;
+  }
+  [data-ygx-on] .header__wrap .language__link ul a { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .header__wrap .language__link ul a:hover { color: var(--ygx-bar-acc) !important; }
+
+  /* Shop header: nickname, search, menu tabs. */
+  [data-ygx-on] .showheader__headerWrap {
+    background: var(--ygx-bar-alt) !important;
+    border-bottom: 1px solid var(--ygx-bar-line) !important;
+  }
+  [data-ygx-on] .showheader__nickname { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .showheader__menuslink,
+  [data-ygx-on] .showheader__custommenu,
+  [data-ygx-on] .showheader__qrcodehandle { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .showheader__menuslink:hover,
+  [data-ygx-on] .showheader__custommenu:hover { color: var(--ygx-bar-text) !important; }
+  /* Yupoo marks the active tab with a floating green div, not a class on it. */
+  [data-ygx-on] .showheader__tabflag { background: var(--ygx-bar-acc) !important; }
+
+  /* The wrap owns the pill border and the button is its right cap, so only
+     colours change here; the geometry is left exactly as Yupoo has it. */
+  [data-ygx-on] .search__inputWrap {
+    background: var(--ygx-bar) !important;
+    border-color: var(--ygx-bar-line) !important;
+  }
+  [data-ygx-on] .search__input { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .search__input::placeholder { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .search__searchBtn {
+    background: var(--ygx-bar-acc) !important;
+    border-color: var(--ygx-bar-acc) !important;
+    color: var(--ygx-bar-on) !important;
+  }
+
+  [data-ygx-on] .broadcastbar__wrap {
+    background: var(--ygx-bar-alt) !important;
+    border-bottom: 1px solid var(--ygx-bar-line) !important;
+  }
+  [data-ygx-on] .broadcastbar__wrap pre { color: var(--ygx-bar-dim) !important; }
+
+  /* All-categories dropdown, which Yupoo fixes over the page. */
+  [data-ygx-on] .showheader__category_new {
+    background: var(--ygx-bar) !important;
+    border: 1px solid var(--ygx-bar-line) !important;
+    box-shadow: 0 12px 30px rgba(0,0,0,.5) !important;
+  }
+  /* Catch-all, not laziness: the panel holds the whole category tree and its
+     text is Yupoo's #494949, which goes near-illegible once the panel is dark.
+     Anything missed here would be dark-on-dark, so sweep it rather than name it. */
+  [data-ygx-on] .showheader__category_new,
+  [data-ygx-on] .showheader__category_new a,
+  [data-ygx-on] .showheader__category_new p,
+  [data-ygx-on] .showheader__category_new li,
+  [data-ygx-on] .showheader__category_new span,
+  [data-ygx-on] .showheader__category_new div { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .showheader__link:hover { color: var(--ygx-bar-acc) !important; }
+
+  /* Custom pages: contact, "how to order" and anything else the shop authors.
+     They all share .htmlwrap__main, so one rule covers the set. Yupoo fills it
+     with a half-transparent tint and a dashed green border as an empty-state
+     marker, both of which wash out over a dark page. */
+  [data-ygx-on] .htmlwrap__main {
+    background: var(--ygx-bar) !important;
+    border: 1px dashed var(--ygx-bar-line) !important;
+    border-radius: 12px !important;
+    color: var(--ygx-bar-dim) !important;
+  }
+  /* The body is shop-authored HTML, so sweep the text rather than name it. */
+  [data-ygx-on] .htmlwrap__main p,
+  [data-ygx-on] .htmlwrap__main li,
+  [data-ygx-on] .htmlwrap__main span,
+  [data-ygx-on] .htmlwrap__main div,
+  [data-ygx-on] .htmlwrap__main td,
+  [data-ygx-on] .htmlwrap__main pre { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .htmlwrap__main h1,
+  [data-ygx-on] .htmlwrap__main h2,
+  [data-ygx-on] .htmlwrap__main h3,
+  [data-ygx-on] .htmlwrap__main h4,
+  [data-ygx-on] .htmlwrap__main strong,
+  [data-ygx-on] .htmlwrap__main b { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .htmlwrap__main a { color: var(--ygx-bar-acc) !important; }
+
+  /* Paginator. .pagination__button is the shared base for prev/next, every
+     number and the jump confirm, with .pagination__active on the current page.
+     The arrows are font icons, so they take colour rather than a filter. */
+  [data-ygx-on] .pagination__button {
+    background: var(--ygx-bar) !important;
+    border-color: var(--ygx-bar-line) !important;
+    color: var(--ygx-bar-dim) !important;
+  }
+  [data-ygx-on] .pagination__button:hover {
+    border-color: var(--ygx-bar-acc) !important;
+    color: var(--ygx-bar-text) !important;
+  }
+  [data-ygx-on] .pagination__button.pagination__active,
+  [data-ygx-on] .pagination__button.pagination__active:hover {
+    background: var(--ygx-bar-acc) !important;
+    border-color: var(--ygx-bar-acc) !important;
+    color: var(--ygx-bar-on) !important;
+  }
+  [data-ygx-on] .pagination__disabled,
+  [data-ygx-on] .pagination__disabled:hover,
+  [data-ygx-on] .pagination__disabled i {
+    border-color: var(--ygx-bar-line) !important;
+    color: #5b6474 !important;
+  }
+  [data-ygx-on] .pagination__jumpwrap,
+  [data-ygx-on] .pagination__jumpwrap span { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .pagination__jumpwrap input {
+    background: var(--ygx-bar) !important;
+    border: 1px solid var(--ygx-bar-line) !important;
+    color: var(--ygx-bar-text) !important;
+  }
+
+  [data-ygx-on] .userfooter__main {
+    background: var(--ygx-bar) !important;
+    border-top: 1px solid var(--ygx-bar-line) !important;
+  }
+  [data-ygx-on] .userfooter__copyright,
+  [data-ygx-on] .userfooter__lang,
+  [data-ygx-on] .userfooter__lang * { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .userfooter__copyright a { color: var(--ygx-bar-text) !important; }
+
+  /* Modals Yupoo pops over the page; white panels otherwise. */
+  [data-ygx-on] .search__loginModal,
+  [data-ygx-on] .passwordmodal__modal,
+  [data-ygx-on] .alert__alert {
+    background: var(--ygx-bar) !important;
+    border: 1px solid var(--ygx-bar-line) !important;
+    color: var(--ygx-bar-text) !important;
+  }
+  [data-ygx-on] .search__loginModal p,
+  [data-ygx-on] .passwordmodal__modal p,
+  [data-ygx-on] .alert__alert p { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .search__loginModal .button {
+    background: var(--ygx-bar-alt) !important;
+    border-color: var(--ygx-bar-line) !important;
+    color: var(--ygx-bar-acc) !important;
+  }
+
+  /* Yupoo's monochrome dark icons, flipped to read on a dark surface. The site
+     logo is the reverse case: already white, so it is left alone here and
+     inverted in the light theme instead. */
+  [data-ygx-on] .search__searchIcon,
+  [data-ygx-on] .showheader__category_collapse,
+  [data-ygx-on] .categories__box-right-pagination-button { filter: invert(1); }
+
   /* ---- /categories sidebar --------------------------------------------
    * .categories__box-left > .yupoo-collapse-item
    *                           > .yupoo-collapse-header > a       (parent)
@@ -1478,6 +1662,33 @@
    * because that text sits on the photograph, not on the card.
    * ==================================================================== */
 
+  /* Page chrome. Flipping the tokens re-themes the whole header stack, the
+     broadcast bar, the paginator and the footer; only the image-based bits
+     below need a rule of their own. Qualified with :root so it outranks the
+     dark declaration rather than merely following it. */
+  :root[data-ygx-theme="light"] {
+    --ygx-page:     #f6f7f9;
+    --ygx-bar:      #ffffff;
+    --ygx-bar-alt:  #fbfbfc;
+    --ygx-bar-line: #e4e7ec;
+    --ygx-bar-text: #1c2024;
+    --ygx-bar-dim:  #667085;
+    --ygx-bar-acc:  #16a06a;
+    --ygx-bar-on:   #ffffff;
+  }
+  /* A white logo on a white bar, so it has to flip here and only here. */
+  [data-ygx-theme="light"][data-ygx-on] .header__logo img { filter: invert(1); }
+  /* Yupoo's own icons are already dark, so the dark theme's flip comes off. */
+  [data-ygx-theme="light"][data-ygx-on] .search__searchIcon,
+  [data-ygx-theme="light"][data-ygx-on] .showheader__category_collapse,
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination-button { filter: none; }
+  [data-ygx-theme="light"][data-ygx-on] .showheader__category_new {
+    box-shadow: 0 12px 30px rgba(16,24,40,.14) !important;
+  }
+  [data-ygx-theme="light"][data-ygx-on] .pagination__disabled,
+  [data-ygx-theme="light"][data-ygx-on] .pagination__disabled:hover,
+  [data-ygx-theme="light"][data-ygx-on] .pagination__disabled i { color: #b8c0cd !important; }
+
   [data-ygx-theme="light"] .ygx-root {
     --ygx-card:    #ffffff;
     --ygx-card-hi: #ffffff;
@@ -1599,8 +1810,11 @@
     return function () { clearTimeout(t); t = setTimeout(fn, ms); };
   }
 
-  function boot() {
-    if (!document.querySelector(CARD_SEL)) return false;
+  // The stylesheet, the theme attributes and the panel need no album cards, so
+  // they go up on every Yupoo page. Keeping them behind the card check left
+  // gridless pages (contact, and the other htmlwrap__main custom pages) with no
+  // stylesheet at all, so they stayed white while the rest of the site was dark.
+  function bootChrome() {
     injectCSS();
     applyTheme();
     applyEnabledAttr();
@@ -1608,6 +1822,10 @@
     applyWiden();
     applyDensity();
     buildPanel();
+  }
+
+  function boot() {
+    if (!document.querySelector(CARD_SEL)) return false;
     render(true);
     syncSubcats();
     startEndless();
@@ -1643,6 +1861,8 @@
 
     return true;
   }
+
+  bootChrome();
 
   let tries = 0;
   (function waitForAlbums() {
