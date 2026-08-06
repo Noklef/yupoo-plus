@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.10.0
+// @version      2.10.1
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
@@ -1430,21 +1430,9 @@
     color: var(--ygx-bar-strong) !important;
   }
 
-  /* Thumbnail / Detail / Big. Yupoo ships these #fff on #9f9f9f, which is the
-     white block that survived on the dark page. */
-  [data-ygx-on] .showalbumheader__btn-group .showalbumheader__button {
-    background: var(--ygx-bar-hover) !important;
-    border-color: var(--ygx-bar-line) !important;
-    color: var(--ygx-bar-dim) !important;
-  }
-  [data-ygx-on] .showalbumheader__btn-group .showalbumheader__button:hover {
-    color: var(--ygx-bar-strong) !important;
-  }
-  [data-ygx-on] .showalbumheader__btn-group .showalbumheader__button.showalbumheader__active {
-    background: var(--ygx-bar-acc) !important;
-    border-color: var(--ygx-bar-acc) !important;
-    color: var(--ygx-bar-on) !important;
-  }
+  /* Thumbnail / Detail / Big. Gone: the panel's Card size slider owns tile
+     width here, and these three set a competing one. */
+  [data-ygx-on] .showalbumheader__btn-group { display: none !important; }
 
   [data-ygx-on] .socialshare__shareModal {
     background: var(--ygx-bar) !important;
@@ -1455,23 +1443,19 @@
   [data-ygx-on] .socialshare__shareModal h5 { color: var(--ygx-bar-text) !important; }
 
   /* The photo grid answers the Card size slider and the active design's min
-     width, so the panel controls do something here too. Grid rather than
-     Yupoo's inline-block + calc() widths, so a row fills instead of leaving a
-     ragged edge. Big view is left one-up, which is the whole point of it. */
-  [data-ygx-on] .showalbum__parent:not(.showalbum__max) {
-    --ygx-tile: var(--ygx-min);
+     width, so the panel controls do something here too. All three of Yupoo's
+     view classes are normalised onto it: the view buttons are hidden, and the
+     class is server-set, so a stale nor/max/min would otherwise stick. */
+  [data-ygx-on] .showalbum__parent {
     display: grid !important;
-    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-tile), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
     gap: 16px;
     font-size: 14px !important;
   }
-  /* Thumbnail stays the denser of the two. .45 lands on Yupoo's own 10-up at
-     the default 260px, so switching view still changes something. */
-  [data-ygx-on] .showalbum__parent.showalbum__min { --ygx-tile: calc(var(--ygx-min) * .45); }
   /* Yupoo's clearfix pseudo-elements would each take a grid cell. */
-  [data-ygx-on] .showalbum__parent:not(.showalbum__max)::before,
-  [data-ygx-on] .showalbum__parent:not(.showalbum__max)::after { display: none !important; }
-  [data-ygx-on] .showalbum__parent:not(.showalbum__max) > .showalbum__children {
+  [data-ygx-on] .showalbum__parent::before,
+  [data-ygx-on] .showalbum__parent::after { display: none !important; }
+  [data-ygx-on] .showalbum__parent > .showalbum__children {
     width: auto !important;
     margin: 0 !important;
   }
