@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.6.2
+// @version      2.6.3
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -27,6 +27,11 @@
   ];
 
   const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true, theme: 'light', endless: false };
+
+  // Endless scroll is shelved, not removed: it fetches, appends and dedupes
+  // correctly, but crashes long sessions for reasons not yet pinned down. Set
+  // this to true to pick it back up; nothing else needs changing.
+  const ENDLESS_READY = false;
   const THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
 
   /* =========================================================================
@@ -53,7 +58,8 @@
     enabled: store.get('enabled', DEFAULTS.enabled) !== false,
     widen: store.get('widen', DEFAULTS.widen) !== false,
     theme: store.get('theme', DEFAULTS.theme),
-    endless: store.get('endless', DEFAULTS.endless) === true
+    // Forced off while shelved, so a previously saved true does not revive it.
+    endless: ENDLESS_READY && store.get('endless', DEFAULTS.endless) === true
   };
   if (!DESIGNS.some(d => d.id === state.design)) state.design = DEFAULTS.design;
   if (!THEMES.some(t => t.id === state.theme)) state.theme = DEFAULTS.theme;
@@ -860,9 +866,15 @@
     const endCb = el('input');
     endCb.type = 'checkbox';
     endCb.checked = state.endless;
+    endCb.disabled = !ENDLESS_READY;
     endCb.addEventListener('change', () => setEndless(endCb.checked));
     endRow.appendChild(endCb);
     endRow.appendChild(el('span', 'ygx-row-label', 'Endless scroll'));
+    if (!ENDLESS_READY) {
+      endRow.classList.add('ygx-shelved');
+      endRow.title = 'WIP: loads pages correctly, but crashes long sessions.';
+      endRow.appendChild(el('span', 'ygx-note', 'WIP'));
+    }
     bodyEl.appendChild(endRow);
 
     const toggle = el('button', 'ygx-toggle', '');
@@ -1072,9 +1084,10 @@
   [data-ygx-on] .yupoo-categories-show-sidebar:hover {
     background-color: #dcd7cc !important; border-color: #c5bead !important;
   }
-  /* Yupoo insets it 5px from the sidebar edge; the card needs 7px for its border
-     plus padding, and the button is 2px wider than the one it was sized for. */
-  [data-ygx-on] .yupoo-categories-hide-sidebar { transform: translate(-4px, -1px); }
+  /* Pull it in to the row's text column. The card reserves a scrollbar gutter, so
+     rows end ~10px short of its inner edge; left where Yupoo puts it, the button
+     overhangs every row and sits on top of the scrollbar. */
+  [data-ygx-on] .yupoo-categories-hide-sidebar { transform: translate(-24px, -1px); }
 
   /* The button sits over the first row, so that row alone reserves its width.
      Declared after the chevron rule so it wins the 28px reservation. */
@@ -1442,6 +1455,13 @@
   .ygx-check { cursor: pointer; }
   .ygx-check input { accent-color: #3fbb85; margin: 0; }
   .ygx-row-label { color: #97a0b2; font-size: 11px; white-space: nowrap; }
+  /* Shelved setting: visible so it is not forgotten, but not operable. */
+  .ygx-row.ygx-shelved { cursor: not-allowed; }
+  .ygx-row.ygx-shelved .ygx-row-label { color: #5c6577; }
+  .ygx-note {
+    margin-left: auto; font-size: 10px; letter-spacing: .3px; color: #6b7488;
+    border: 1px solid #2c313d; border-radius: 5px; padding: 1px 5px;
+  }
   .ygx-range { flex: 1; accent-color: #3fbb85; }
   .ygx-toggle {
     all: unset; cursor: pointer; text-align: center; padding: 7px; border-radius: 8px;
@@ -1543,6 +1563,8 @@
   [data-ygx-theme="light"] .ygx-design-btn:hover { background: #e9ecf1; color: #101828; }
   [data-ygx-theme="light"] .ygx-design-btn.is-active { background: #16a06a; color: #fff; }
   [data-ygx-theme="light"] .ygx-row-label { color: #667085; }
+  [data-ygx-theme="light"] .ygx-row.ygx-shelved .ygx-row-label { color: #98a2b3; }
+  [data-ygx-theme="light"] .ygx-note { color: #98a2b3; border-color: #e4e7ec; }
   [data-ygx-theme="light"] .ygx-range,
   [data-ygx-theme="light"] .ygx-check input { accent-color: #16a06a; }
   [data-ygx-theme="light"] .ygx-toggle { background: #f2f4f7; color: #475467; border-color: #e4e7ec; }
