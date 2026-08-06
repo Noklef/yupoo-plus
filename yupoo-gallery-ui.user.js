@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.7.1
+// @version      2.7.2
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @grant        GM_addStyle
@@ -14,9 +14,7 @@
 (function () {
   'use strict';
 
-  /* =========================================================================
-   * 0. Config
-   * ====================================================================== */
+  /* ---- 0. Config ------------------------------------------------------- */
 
   const DESIGNS = [
     { id: 'editorial', label: 'Editorial', min: 260, hint: 'Big 4:5 image, floating price pill, 2-line title.' },
@@ -28,15 +26,12 @@
 
   const DEFAULTS = { design: 'editorial', density: 1, enabled: true, widen: true, theme: 'light', endless: false };
 
-  // Endless scroll is shelved, not removed: it fetches, appends and dedupes
-  // correctly, but crashes long sessions for reasons not yet pinned down. Set
-  // this to true to pick it back up; nothing else needs changing.
+  // Shelved, not removed: it loads and dedupes correctly but crashes long
+  // sessions. Flip to true to pick it back up; nothing else needs changing.
   const ENDLESS_READY = false;
   const THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
 
-  /* =========================================================================
-   * 1. Storage (GM_* with localStorage fallback)
-   * ====================================================================== */
+  /* ---- 1. Storage (GM_* with localStorage fallback) -------------------- */
 
   const store = {
     get(k, d) {
@@ -64,38 +59,10 @@
   if (!DESIGNS.some(d => d.id === state.design)) state.design = DEFAULTS.design;
   if (!THEMES.some(t => t.id === state.theme)) state.theme = DEFAULTS.theme;
 
-  /* =========================================================================
-   * 2. Scraping
-   *
-   * Verified against Yupoo's "category_commerce" template:
-   *
-   *   main.showindex__gallerycardwrap
-   *     div.show-layout-category__catewrap          <- section (may be absent)
-   *       a.show-layout-category__catetitle         <- heading, left in place
-   *       div.showindex__parent                     <- GRID
-   *         div.showindex__children                 <- card wrapper
-   *           a.album3__main[data-album-id][title][href="/albums/<id>?..."]
-   *             div.album3__loading                 <- skeleton, ignored
-   *             div.album__imgwrap
-   *               img.album__img.autocover          <- COVER (first image)
-   *               div.album__photonumber            <- photo count
-   *             div.album3__photoswrap
-   *               div.album3__squareWrap > img.album3__img[data-src]   <- thumbs
-   *             div.album3__title                   <- title
-   *
-   * A grid's last child may instead be a "more" tile linking to the collection:
-   *
-   *         div.showindex__children
-   *           a.album3__main[title="more"][href="/collections/<id>"]
-   *             div.album3__showmore > p.album3__more + p  <- "more", "39 items"
-   *
-   * The /categories/<id> listing is flatter: one div.categories__parent holding
-   * every div.categories__children, where the title is a sibling of the anchor
-   * rather than a descendant.
-   *
-   * Older templates use album__main / album__title; both are handled, and
-   * there's a generic fallback for anything else.
-   * ====================================================================== */
+  /* ---- 2. Scraping ----------------------------------------------------- */
+
+  // Yupoo's three templates and their DOM shapes are mapped in CLAUDE.md.
+  // Older album__main / album__title markup and unknown templates fall back.
 
   const CARD_SEL = 'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
   const ALBUM_HREF = /\/albums\/(\d+)/;
@@ -105,8 +72,7 @@
   const BAD_IMG = /(blank|placeholder|loading|spacer|1x1|nopic|no_pic|default_|\.svg($|\?)|^data:)/i;
   // A usable photo is one served by Yupoo's CDN, or at least a real raster file.
   const GOOD_IMG = /(photo\.yupoo\.com|\.(jpe?g|png|webp|gif)($|\?))/i;
-  // Yupoo's "no photos" graphic: a real .png on a real CDN, so GOOD_IMG accepts
-  // it and BAD_IMG misses it. Without this it gets cached as a cover.
+  // A real .png on a real CDN, so GOOD_IMG accepts it and BAD_IMG misses it.
   const PLACEHOLDER_IMG = /im_photo_album/i;
 
   // Lazy-load attributes first: `src` is often a 1x1 data: URI, and Yupoo's
@@ -125,17 +91,10 @@
       IMG_ATTRS.some(attr => PLACEHOLDER_IMG.test(n.getAttribute(attr) || '')));
   }
 
-  /* ---- Price formats ------------------------------------------------------
-   * Add new formats here — nothing else needs touching.
-   *
-   * Each entry's `src` is a regex source string that must capture the bare
-   * number in group 1. They're tried in order, first match wins, and the
-   * matched text is stripped from the title.
-   *
-   * NUM  accepts 1,299 / 299 / 299.50
-   * NUM2 is the same but requires 2+ digits, used for the bare-letter forms
-   *      so that "Y2K" or "S3" don't read as prices.
-   * ---------------------------------------------------------------------- */
+  /* ---- Price formats: add here, nothing else needs touching ------------- */
+
+  // Each `src` captures the bare number in group 1; tried in order, first wins.
+  // NUM takes 1,299 / 299 / 299.50; NUM2 needs 2+ digits so "Y2K" is not a price.
 
   const NUM  = '((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)';
   const NUM2 = '((?:\\d{1,3}(?:,\\d{3})+|\\d{2,})(?:\\.\\d+)?)';
@@ -179,7 +138,8 @@
     return u;
   }
 
-  // Yupoo serves /small /medium /big variants of the same path.
+  // Yupoo serves /small /medium /big variants of the same path. Everything is
+  // pinned to /small at scrape time, so nothing downstream picks a size.
   function sized(url, want) {
     if (!url) return url;
     return url.replace(/\/(small|medium|big)(\.[a-z]{3,4})(\?.*)?$/i, '/' + want + '$2$3');
@@ -203,26 +163,21 @@
   function readImages(card) {
     const out = [];
     const seen = new Set();
-    // Dedupe on the photo, not the URL: the cover and the first thumbnail are
-    // the same picture at different sizes (/small vs /medium), so comparing raw
-    // URLs lets a 1-photo album render its one image twice.
+    // Dedupe on the photo, not the URL: cover and first thumbnail are one
+    // picture at two sizes, so raw URLs render a 1-photo album twice.
     const key = (u) => u.replace(/\/(small|medium|big)(\.[a-z]{3,4})($|\?)/i, '/*');
     const push = (u) => {
       if (!isRealPhoto(u)) return;
       const k = key(u);
       if (seen.has(k)) return;
       seen.add(k);
-      out.push(u);
+      // Normalised here rather than at use: /small is 500x500, comfortably over
+      // any card we render, so no design or hover state needs a bigger variant.
+      out.push(sized(u, 'small'));
     };
 
-    // The cover is the album's first image — size guide or not, it's what shows.
-    //
-    // But Yupoo lazy-loads it: for albums below the fold, .album__img still has
-    // a placeholder in src and an empty data-origin-src. Because we hide the
-    // original grid, Yupoo's loader never scrolls it into view and never fills
-    // it in. The first .album3__img thumbnail carries the same photo in its
-    // data-src and is populated server-side, so it's the more reliable read —
-    // we take the cover only when it's already a real photo.
+    // Below the fold .album__img is still a placeholder and our hidden grid
+    // means it never fills in, so take the cover only when it is a real photo.
     const cover = card.querySelector('.album__imgwrap img, .album__img');
     push(cover ? urlFromNode(cover) : '');
 
@@ -340,9 +295,7 @@
       .map(([grid, items]) => ({ grid, items }));
   }
 
-  /* =========================================================================
-   * 3. Rendering
-   * ====================================================================== */
+  /* ---- 3. Rendering ---------------------------------------------------- */
 
   const mounted = new Map();   // original grid element -> our .ygx-root element
   let io = null;
@@ -416,17 +369,13 @@
       img.alt = item.title;
       img.decoding = 'async';
 
-      const wantBig = design === 'editorial' || design === 'showcase' || design === 'masonry';
-      const first = wantBig ? sized(item.images[0], 'medium') : item.images[0];
+      const first = item.images[0];
       img.dataset.ygxSrc = first;
       img.dataset.ygxFirst = first;
 
-      // Not every album has a /medium variant, and an occasional cover 404s
-      // outright — walk down to the small original, then to the next photo.
-      const chain = [];
-      for (const u of [first, item.images[0], item.images[1]]) {
-        if (u && !chain.includes(u)) chain.push(u);
-      }
+      // An occasional cover 404s outright, so step to the next photo. There is
+      // no size fallback to make now that every URL is already /small.
+      const chain = [first, item.images[1]].filter(Boolean);
       let step = 0;
       img.addEventListener('error', () => {
         if (++step >= chain.length) return;
@@ -471,7 +420,7 @@
         clearInterval(timer);
         timer = setInterval(() => {
           i = (i + 1) % item.images.length;
-          img.src = sized(item.images[i], 'medium');
+          img.src = item.images[i];
         }, 900);
       });
       a.addEventListener('mouseleave', () => {
@@ -531,16 +480,10 @@
       groups.map(g => g.items.length + ':' + g.items.map(i => i.href).join(',')).join('|');
   }
 
-  /* =========================================================================
-   * 3b. Endless scroll
-   *
-   * All three paginated page types (/, /albums, /categories/<id>) serve plain
-   * server-rendered HTML on this origin, and all expose the same next link. On
-   * the last page that anchor carries no href, which is the stop signal.
-   *
-   * Fetched cards are grafted into the hidden original markup rather than into
-   * our output, so scraping, dedupe and "Restore original layout" are unchanged.
-   * ====================================================================== */
+  /* ---- 3b. Endless scroll ---------------------------------------------- */
+
+  // All three page types expose the same next link, hrefless on the last page.
+  // Cards graft into the hidden original markup, so teardown stays a real restore.
 
   const NEXT_SEL = 'nav.pagination__main a[title="next page"]';
   const GRID_SEL = '.showindex__parent, .categories__parent';
@@ -549,9 +492,8 @@
   // this one does not, so runaway loading stays bounded whatever else breaks.
   const MAX_PAGES = 10;
 
-  // url: null means "not looked up yet", '' means "no further pages".
-  // armed is cleared on each load and set again by scrolling, so a sentinel that
-  // stays in view cannot chain through every page unattended.
+  // url: null is "not looked up yet", '' is "no further pages". armed clears on
+  // each load and returns on scroll, so a sentinel in view cannot self-chain.
   const endless = {
     url: null, busy: false, armed: true, paused: false,
     pages: 0, node: null, io: null, extra: null, seen: new Set()
@@ -593,9 +535,8 @@
     const roots = document.querySelectorAll('.ygx-root');
     const last = roots[roots.length - 1];
     if (!last) return;
-    // Anchor to the hidden grid, not the root: roots are inserted before their
-    // grid, so anchoring to the root puts the sentinel in the slot the next
-    // rebuild inserts into, hoisting it above the cards.
+    // Anchor to the hidden grid, not the root: roots insert before their grid,
+    // so the root's slot is where the next rebuild hoists it above the cards.
     let anchor = last;
     mounted.forEach((root, grid) => { if (root === last) anchor = grid; });
     anchor.parentElement.insertBefore(endless.node, anchor.nextSibling);
@@ -647,9 +588,8 @@
     }
 
     const live = Array.from(document.querySelectorAll(GRID_SEL)).filter(g => !g.closest('.ygx-root'));
-    // One live grid is a flat list, so the next page continues it. Several means
-    // sections, and the next page is a flat list that must not land under the
-    // last heading, so every later page shares one container of its own.
+    // One live grid means a flat list the next page continues. Several means
+    // sections, so later pages share a container instead of the last heading.
     let target = live.length === 1 ? live[0] : endless.extra;
 
     for (const g of Array.from(doc.querySelectorAll(GRID_SEL))) {
@@ -791,9 +731,7 @@
     syncPanel();
   }
 
-  /* =========================================================================
-   * 4. Control panel
-   * ====================================================================== */
+  /* ---- 4. Control panel ------------------------------------------------ */
 
   let panel = null;
 
@@ -906,9 +844,7 @@
     });
   }
 
-  /* =========================================================================
-   * 5. Styles
-   * ====================================================================== */
+  /* ---- 5. Styles ------------------------------------------------------- */
 
   const CSS = `
   [data-ygx-hidden] { display: none !important; }
@@ -928,14 +864,10 @@
   }
   [data-ygx-widen] .show-layout-category__catetitle { padding-left: 24px !important; }
 
-  /* ---- Page chrome -----------------------------------------------------
-   * Yupoo's own header stack, broadcast bar, paginator and footer, none of
-   * which was themed before: a dark gallery sat on a white page.
-   *
-   * These tokens live on :root rather than .ygx-root because the chrome sits
-   * outside the grid and so cannot inherit from it. Only the tokens are
-   * re-declared for light, which is why almost nothing below needs a twin.
-   * -------------------------------------------------------------------- */
+  /* ---- Page chrome: header stack, broadcast bar, paginator, footer ---- */
+
+  /* On :root, not .ygx-root: the chrome sits outside the grid and cannot
+     inherit from it. Light re-declares only these, so few rules need a twin. */
   :root {
     --ygx-page:     #0f1116;
     --ygx-bar:      #191c24;
@@ -1011,9 +943,8 @@
     border: 1px solid var(--ygx-bar-line) !important;
     box-shadow: 0 12px 30px rgba(0,0,0,.5) !important;
   }
-  /* Catch-all, not laziness: the panel holds the whole category tree and its
-     text is Yupoo's #494949, which goes near-illegible once the panel is dark.
-     Anything missed here would be dark-on-dark, so sweep it rather than name it. */
+  /* Swept, not named: the tree's text is #494949, so anything missed once the
+     panel goes dark would be dark-on-dark. */
   [data-ygx-on] .showheader__category_new,
   [data-ygx-on] .showheader__category_new a,
   [data-ygx-on] .showheader__category_new p,
@@ -1022,10 +953,8 @@
   [data-ygx-on] .showheader__category_new div { color: var(--ygx-bar-dim) !important; }
   [data-ygx-on] .showheader__link:hover { color: var(--ygx-bar-acc) !important; }
 
-  /* Custom pages: contact, "how to order" and anything else the shop authors.
-     They all share .htmlwrap__main, so one rule covers the set. Yupoo fills it
-     with a half-transparent tint and a dashed green border as an empty-state
-     marker, both of which wash out over a dark page. */
+  /* Every shop-authored page (contact, "how to order") shares .htmlwrap__main.
+     Yupoo's half-transparent tint and dashed green border wash out when dark. */
   [data-ygx-on] .htmlwrap__main {
     background: var(--ygx-bar) !important;
     border: 1px dashed var(--ygx-bar-line) !important;
@@ -1047,9 +976,8 @@
   [data-ygx-on] .htmlwrap__main b { color: var(--ygx-bar-text) !important; }
   [data-ygx-on] .htmlwrap__main a { color: var(--ygx-bar-acc) !important; }
 
-  /* Paginator. .pagination__button is the shared base for prev/next, every
-     number and the jump confirm, with .pagination__active on the current page.
-     The arrows are font icons, so they take colour rather than a filter. */
+  /* .pagination__button is the shared base for prev/next, numbers and confirm;
+     .pagination__active is the current page. Arrows are font icons, so: colour. */
   [data-ygx-on] .pagination__button {
     background: var(--ygx-bar) !important;
     border-color: var(--ygx-bar-line) !important;
@@ -1105,20 +1033,13 @@
     color: var(--ygx-bar-acc) !important;
   }
 
-  /* Yupoo's monochrome dark icons, flipped to read on a dark surface. The site
-     logo is the reverse case: already white, so it is left alone here and
-     inverted in the light theme instead. */
+  /* Yupoo's dark icons, flipped to read on a dark surface. The white site logo
+     is the reverse case, so it inverts in the light theme instead. */
   [data-ygx-on] .search__searchIcon,
   [data-ygx-on] .showheader__category_collapse,
   [data-ygx-on] .categories__box-right-pagination-button { filter: invert(1); }
 
-  /* ---- /categories sidebar --------------------------------------------
-   * .categories__box-left > .yupoo-collapse-item
-   *                           > .yupoo-collapse-header > a       (parent)
-   *                           > .yupoo-collapse-content
-   *                               > .yupoo-collapse-content-box
-   *                                   > a.yupoo-collapse-content-item  (child)
-   * -------------------------------------------------------------------- */
+  /* ---- /categories sidebar (tree shape is in CLAUDE.md) ---------------- */
   [data-ygx-on] .categories__box-left {
     background: #191c24 !important;
     border: 1px solid #2a2f3b !important;
@@ -1130,9 +1051,8 @@
     max-height: calc(100vh - 28px);
     scrollbar-width: thin;
     scrollbar-color: #39404f transparent;
-    /* Reserve the scrollbar track. Without this, a hover state that changes
-       content height by a pixel makes the scrollbar appear/disappear and the
-       entire column reflows — which looks like every row jittering at once. */
+    /* Reserve the track: without it a 1px hover height change toggles the
+       scrollbar and reflows the column, which reads as every row jittering. */
     scrollbar-gutter: stable;
   }
   [data-ygx-on] .categories__box-left::-webkit-scrollbar { width: 8px; }
@@ -1145,11 +1065,8 @@
     background: transparent !important;
     border: 0 !important;
   }
-  /* Yupoo binds expand/collapse to .yupoo-collapse-header and lets the inline
-     <a> handle navigation. So the header owns the row padding (and therefore
-     the toggle hit area) and the anchor stays inline at text width — making
-     the anchor display:block hands the whole row to the link and there's
-     nothing left to click to expand. */
+  /* The header owns the row padding, so it owns the toggle hit area. Making the
+     anchor display:block hands the row to the link, leaving nothing to expand. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-header,
   [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover {
     box-sizing: border-box;
@@ -1244,14 +1161,10 @@
     max-width: calc(100% - 28px);
   }
 
-  /* ---- Sidebar collapse button ----------------------------------------
-   * An empty 24px div positioned against .categories__box, not the sidebar, so
-   * it lands on top of the first row 5px inside the sidebar's right edge. Fine
-   * against Yupoo's flat grey block; against our rounded card it reads as debris.
-   *
-   * The icon is a background image, so the dark theme inverts the whole element
-   * and the surface colours here are pre-inverted to compensate.
-   * -------------------------------------------------------------------- */
+  /* ---- Sidebar collapse button ----------------------------------------- */
+
+  /* An empty div positioned against .categories__box, so it lands over the first
+     row. Its icon is a background image, so these colours are pre-inverted. */
   [data-ygx-on] .yupoo-categories-hide-sidebar,
   [data-ygx-on] .yupoo-categories-show-sidebar {
     width: 26px !important;
@@ -1268,9 +1181,8 @@
   [data-ygx-on] .yupoo-categories-show-sidebar:hover {
     background-color: #dcd7cc !important; border-color: #c5bead !important;
   }
-  /* Pull it in to the row's text column. The card reserves a scrollbar gutter, so
-     rows end ~10px short of its inner edge; left where Yupoo puts it, the button
-     overhangs every row and sits on top of the scrollbar. */
+  /* Pull it into the row's text column: the card reserves a 10px scrollbar
+     gutter, so left as Yupoo has it the button sits on top of the scrollbar. */
   [data-ygx-on] .yupoo-categories-hide-sidebar { transform: translate(-24px, -1px); }
 
   /* The button sits over the first row, so that row alone reserves its width.
@@ -1279,13 +1191,7 @@
     max-width: calc(100% - 32px);
   }
 
-  /* ---- Sub-category row (above the grid) -------------------------------
-   * .categories__box-right-categories-wrap.is-fold
-   *   > .categories__box-right-categories
-   *       > .categories__box-right-category-item-trick-wrap
-   *           > a.categories__box-right-category-item
-   *   > .categories__box-right-categories-toggle          "More" / "Less"
-   * -------------------------------------------------------------------- */
+  /* ---- Sub-category row above the grid (shape in CLAUDE.md) ------------- */
   [data-ygx-on] .categories__box-right-categories {
     gap: 8px !important;
     /* Left edge lines up with the first card; the right reserves the More button. */
@@ -1420,9 +1326,8 @@
   .ygx-price { font-size: 14px; font-weight: 700; color: var(--ygx-accent); letter-spacing: .2px; }
   .ygx-chip { font-size: 11px; color: var(--ygx-muted); border: 1px solid var(--ygx-line); border-radius: 6px; padding: 2px 6px; }
 
-  /* Thumbs hold a fixed quarter-width slot. With width:100% a 1- or 2-photo
-     album stretched them to full card width and they rendered as a second
-     giant image under the cover. */
+  /* Fixed quarter-width slots: at width:100% a 1- or 2-photo album stretched
+     them full width and they read as a second giant image under the cover. */
   .ygx-strip { display: flex; gap: 4px; padding: 0 12px 12px; }
   .ygx-thumb {
     flex: 0 0 calc(25% - 3px); max-width: calc(25% - 3px);
@@ -1431,9 +1336,7 @@
   }
   .ygx-card:hover .ygx-thumb { opacity: 1; }
 
-  /* ---- Empty album -----------------------------------------------------
-   * Natural size, not stretched; in the media area so Dense/Masonry keep it.
-   * -------------------------------------------------------------------- */
+  /* ---- Empty album: in the media area, so Dense and Masonry keep it ----- */
   .ygx-empty-box {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1571,17 +1474,8 @@
   }
   .ygx-panel * { box-sizing: border-box; }
 
-  /* Host-page armour.
-   *
-   * The panel is injected into Yupoo's document, which styles bare button
-   * elements (.pagination__button, .showlayout__action button, .button...).
-   * "all: unset" only resets the base state — a host rule such as
-   *   button:hover { border: 1px solid; padding: 8px }
-   * still wins over .ygx-design-btn:hover, which only declares colours, so
-   * their geometry change applies on hover and the button shifts.
-   *
-   * Pinning every box-model property across all states makes that structurally
-   * impossible, whatever their stylesheet turns out to say. */
+  /* Host-page armour: "all: unset" resets only the base state, so a Yupoo
+     button:hover rule still shifts our geometry. Pinned across every state. */
   .ygx-panel button,
   .ygx-panel button:hover,
   .ygx-panel button:focus,
@@ -1654,18 +1548,13 @@
   .ygx-toggle:hover { background: #2b313e; color: #fff; }
   .ygx-toggle.is-off { background: #3fbb85; color: #07130d; border-color: transparent; }
 
-  /* =======================================================================
-   * LIGHT THEME (default) — overrides the dark values above.
-   *
-   * Only surfaces are re-themed. The scrim-backed overlays used by Dense,
-   * Masonry and Showcase keep white text on a dark gradient in both themes,
-   * because that text sits on the photograph, not on the card.
-   * ==================================================================== */
+  /* ---- Light theme (default): overrides the dark values above ----------- */
 
-  /* Page chrome. Flipping the tokens re-themes the whole header stack, the
-     broadcast bar, the paginator and the footer; only the image-based bits
-     below need a rule of their own. Qualified with :root so it outranks the
-     dark declaration rather than merely following it. */
+  /* Surfaces only. Scrim overlays keep white-on-gradient in both themes,
+     because that text sits on the photograph rather than on the card. */
+
+  /* Flipping these re-themes the whole chrome; only image-based bits need their
+     own rule. Qualified with :root so it outranks dark on specificity. */
   :root[data-ygx-theme="light"] {
     --ygx-page:     #f6f7f9;
     --ygx-bar:      #ffffff;
@@ -1801,19 +1690,15 @@
     (document.head || document.documentElement).appendChild(s);
   }
 
-  /* =========================================================================
-   * 6. Boot
-   * ====================================================================== */
+  /* ---- 6. Boot --------------------------------------------------------- */
 
   function debounce(fn, ms) {
     let t;
     return function () { clearTimeout(t); t = setTimeout(fn, ms); };
   }
 
-  // The stylesheet, the theme attributes and the panel need no album cards, so
-  // they go up on every Yupoo page. Keeping them behind the card check left
-  // gridless pages (contact, and the other htmlwrap__main custom pages) with no
-  // stylesheet at all, so they stayed white while the rest of the site was dark.
+  // Needs no album cards, so it runs on every page. Behind the card check,
+  // gridless pages got no stylesheet at all and stayed white in dark mode.
   function bootChrome() {
     injectCSS();
     applyTheme();
@@ -1830,13 +1715,8 @@
     syncSubcats();
     startEndless();
 
-    // Each page needs a scroll to re-arm, so a sentinel left in view after a
-    // load cannot walk the whole catalogue on its own.
-    //
     // Capture on document, not window: Yupoo scrolls <body> as an overflow
-    // container rather than the viewport, and scroll events do not bubble from
-    // an element, so a window listener never fires and endless scroll would stop
-    // dead after one page.
+    // container, and scroll does not bubble, so a window listener never fires.
     document.addEventListener('scroll', () => { endless.armed = true; },
       { passive: true, capture: true });
 
