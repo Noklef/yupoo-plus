@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.8.0
+// @version      2.9.0
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
@@ -938,7 +938,11 @@
   [data-ygx-widen] .show-layout-category__catewrap,
   [data-ygx-widen] .categories__box,
   [data-ygx-widen] .categories__box.clearfix,
-  [data-ygx-widen] .showalbum__children,
+  /* The album page's two capped containers. NOT .showalbum__children, which is
+     each photo tile: Yupoo sizes those calc((100% - 16px) / 2), so widening
+     them collapsed the 2-up grid and ate the gutters. */
+  [data-ygx-widen] .showalbum__imagecardwrap,
+  [data-ygx-widen] .showalbumheader__main,
   [data-ygx-widen] .broadcastbar__wrap,
   [data-ygx-widen] .pagination__main {
     max-width: none !important;
@@ -1065,8 +1069,10 @@
   [data-ygx-on] .showheader__link:hover { color: var(--ygx-bar-acc) !important; }
 
   /* Every shop-authored page (contact, "how to order") shares .htmlwrap__main.
-     Yupoo's half-transparent tint and dashed green border wash out when dark. */
-  [data-ygx-on] .htmlwrap__main {
+     Yupoo's half-transparent tint and dashed green border wash out when dark.
+     The album description carries the same class, so it is excluded here: the
+     box treatment plus Yupoo's min-height:63px turned one line into a slab. */
+  [data-ygx-on] .htmlwrap__main:not(.showalbumheader__gallerysubtitle) {
     background: var(--ygx-bar) !important;
     border: 1px dashed var(--ygx-bar-line) !important;
     border-radius: 12px !important;
@@ -1353,6 +1359,111 @@
   }
   [data-ygx-on] .categories__box-right-pagination a { color: var(--ygx-bar-link) !important; }
   [data-ygx-on] .categories__box-right-pagination a:hover { color: var(--ygx-bar-acc-text) !important; }
+
+  /* ---- Album detail page, /albums/<id> (shape in CLAUDE.md) ------------- */
+
+  /* The header is one panel. flow-root rather than block because the cover is a
+     float no ancestor contains, and a panel it can hang out of looks broken. */
+  [data-ygx-on] .showalbumheader__main {
+    display: flow-root !important;
+    background: var(--ygx-bar) !important;
+    border: 1px solid var(--ygx-bar-line) !important;
+    border-radius: 14px !important;
+    padding: 14px 16px 16px !important;
+    margin-bottom: 4px !important;
+  }
+  /* Breadcrumb reads as the panel's header row. */
+  [data-ygx-on] .showalbumheader__header {
+    margin-bottom: 12px !important;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--ygx-bar-line);
+    font-size: 12px;
+  }
+  [data-ygx-on] .yupoo-crumbs-span { color: var(--ygx-bar-sub) !important; }
+  [data-ygx-on] .yupoo-crumbs-span.is-link:hover { color: var(--ygx-bar-acc-text) !important; }
+
+  /* Yupoo's 1px #cfcfcf frame and the white 5px inner border both go. */
+  [data-ygx-on] .showalbumheader__gallerycover,
+  [data-ygx-on] .showalbumheader__space {
+    border: 0 !important;
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--ygx-bar-alt);
+  }
+
+  /* The count sits in the h1 next to the title, separated by an <i> that draws
+     itself from currentColor, so dimming the h1 dims the rule too. */
+  [data-ygx-on] .showalbumheader__gallerydec h1 { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .showalbumheader__gallerytitle { color: var(--ygx-bar-text) !important; }
+
+  /* A quiet rail instead of a box: the description is usually one or two lines,
+     and min-height reserved 63px for them. */
+  [data-ygx-on] .showalbumheader__gallerysubtitle {
+    min-height: 0 !important;
+    margin: 2px 0 12px !important;
+    padding-left: 10px;
+    border-left: 2px solid var(--ygx-bar-line);
+    color: var(--ygx-bar-dim) !important;
+  }
+  [data-ygx-on] .showalbumheader__gallerysubtitle a { color: var(--ygx-bar-acc-text) !important; }
+
+  /* Batch copy / batch download / share. */
+  [data-ygx-on] .showalbumheader__tabgroup .button {
+    background: var(--ygx-bar-hover) !important;
+    border: 1px solid var(--ygx-bar-line) !important;
+    color: var(--ygx-bar-item) !important;
+    transition: border-color .15s, color .15s;
+  }
+  [data-ygx-on] .showalbumheader__tabgroup .button:hover {
+    border-color: var(--ygx-bar-hover-line) !important;
+    color: var(--ygx-bar-strong) !important;
+  }
+
+  /* Thumbnail / Detail / Big. Yupoo ships these #fff on #9f9f9f, which is the
+     white block that survived on the dark page. */
+  [data-ygx-on] .showalbumheader__btn-group .showalbumheader__button {
+    background: var(--ygx-bar-hover) !important;
+    border-color: var(--ygx-bar-line) !important;
+    color: var(--ygx-bar-dim) !important;
+  }
+  [data-ygx-on] .showalbumheader__btn-group .showalbumheader__button:hover {
+    color: var(--ygx-bar-strong) !important;
+  }
+  [data-ygx-on] .showalbumheader__btn-group .showalbumheader__button.showalbumheader__active {
+    background: var(--ygx-bar-acc) !important;
+    border-color: var(--ygx-bar-acc) !important;
+    color: var(--ygx-bar-on) !important;
+  }
+
+  [data-ygx-on] .socialshare__shareModal {
+    background: var(--ygx-bar) !important;
+    border-color: var(--ygx-bar-line) !important;
+    color: var(--ygx-bar-text) !important;
+  }
+  [data-ygx-on] .socialshare__shareModal h4,
+  [data-ygx-on] .socialshare__shareModal h5 { color: var(--ygx-bar-text) !important; }
+
+  /* Photo tiles take the .ygx-card treatment. border-box is load-bearing:
+     Yupoo sizes them with calc(), so a content-box border wraps the row. */
+  [data-ygx-on] .showalbum__children.image__main {
+    box-sizing: border-box;
+    background: var(--ygx-bar);
+    border: 1px solid var(--ygx-bar-line);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: transform .22s cubic-bezier(.2,.7,.3,1), border-color .22s, box-shadow .22s;
+  }
+  [data-ygx-on] .showalbum__children.image__main:hover {
+    border-color: var(--ygx-bar-hover-line);
+    transform: translateY(-3px);
+    box-shadow: 0 14px 34px var(--ygx-drop);
+  }
+  [data-ygx-on] .image__imagewrap { background: var(--ygx-bar-alt); }
+  /* Yupoo's own hover frame is a ::after at #49bc85; retinted, not removed. */
+  [data-ygx-on] .image__imagewrap:hover:after { border-color: var(--ygx-bar-acc) !important; }
+  /* Upload filenames, meaningless to a shopper. Yupoo already hides them in
+     Thumbnail view; this extends that to Detail and Big. */
+  [data-ygx-on] .image__decwrap { display: none !important; }
 
   :root { --ygx-min: 260px; }
 
