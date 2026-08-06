@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.9.0
+// @version      2.10.0
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
@@ -788,6 +788,10 @@
   function setDesign(id) {
     state.design = id;
     store.set('design', id);
+    // Ahead of render(), which returns early on a page with nothing to scrape
+    // and so never reaches its own applyDensity(). The album page's photo grid
+    // reads --ygx-min directly and would otherwise keep the old design's width.
+    applyDensity();
     render(true);
     syncPanel();
   }
@@ -1370,7 +1374,11 @@
     border: 1px solid var(--ygx-bar-line) !important;
     border-radius: 14px !important;
     padding: 14px 16px 16px !important;
-    margin-bottom: 4px !important;
+    /* Top and bottom only. Yupoo centres this with margin 0 auto, so a
+       shorthand would left-align the panel whenever widen is off. The 20px
+       matches .showalbum__imagecardwrap's 1.3em top padding below it. */
+    margin-top: 20px !important;
+    margin-bottom: 0 !important;
   }
   /* Breadcrumb reads as the panel's header row. */
   [data-ygx-on] .showalbumheader__header {
@@ -1382,14 +1390,17 @@
   [data-ygx-on] .yupoo-crumbs-span { color: var(--ygx-bar-sub) !important; }
   [data-ygx-on] .yupoo-crumbs-span.is-link:hover { color: var(--ygx-bar-acc-text) !important; }
 
-  /* Yupoo's 1px #cfcfcf frame and the white 5px inner border both go. */
-  [data-ygx-on] .showalbumheader__gallerycover,
-  [data-ygx-on] .showalbumheader__space {
+  /* Yupoo's 1px #cfcfcf frame goes; overflow clips the cover, which is an
+     absolutely positioned .autocover. Nothing may paint on __space: it is only
+     a 136px sizing spacer, but it is position:relative and comes after the
+     image, so it paints over it and a background there blanks the cover. */
+  [data-ygx-on] .showalbumheader__gallerycover {
     border: 0 !important;
     border-radius: 12px;
     overflow: hidden;
     background: var(--ygx-bar-alt);
   }
+  [data-ygx-on] .showalbumheader__space { border: 0 !important; }
 
   /* The count sits in the h1 next to the title, separated by an <i> that draws
      itself from currentColor, so dimming the h1 dims the rule too. */
@@ -1442,6 +1453,28 @@
   }
   [data-ygx-on] .socialshare__shareModal h4,
   [data-ygx-on] .socialshare__shareModal h5 { color: var(--ygx-bar-text) !important; }
+
+  /* The photo grid answers the Card size slider and the active design's min
+     width, so the panel controls do something here too. Grid rather than
+     Yupoo's inline-block + calc() widths, so a row fills instead of leaving a
+     ragged edge. Big view is left one-up, which is the whole point of it. */
+  [data-ygx-on] .showalbum__parent:not(.showalbum__max) {
+    --ygx-tile: var(--ygx-min);
+    display: grid !important;
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-tile), 1fr));
+    gap: 16px;
+    font-size: 14px !important;
+  }
+  /* Thumbnail stays the denser of the two. .45 lands on Yupoo's own 10-up at
+     the default 260px, so switching view still changes something. */
+  [data-ygx-on] .showalbum__parent.showalbum__min { --ygx-tile: calc(var(--ygx-min) * .45); }
+  /* Yupoo's clearfix pseudo-elements would each take a grid cell. */
+  [data-ygx-on] .showalbum__parent:not(.showalbum__max)::before,
+  [data-ygx-on] .showalbum__parent:not(.showalbum__max)::after { display: none !important; }
+  [data-ygx-on] .showalbum__parent:not(.showalbum__max) > .showalbum__children {
+    width: auto !important;
+    margin: 0 !important;
+  }
 
   /* Photo tiles take the .ygx-card treatment. border-box is load-bearing:
      Yupoo sizes them with calc(), so a content-box border wraps the row. */
