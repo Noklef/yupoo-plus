@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.10.1
+// @version      2.10.3
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
@@ -74,6 +74,9 @@
   // Older album__main / album__title markup and unknown templates fall back.
 
   const CARD_SEL = 'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
+  // Never scraped: our own cards, the pager, and Yupoo's photo viewer, which
+  // holds a live /albums/<id> link and a thumbnail strip once a photo is open.
+  const SKIP_SEL = '.ygx-root, .pagination__main, .viewer__main';
   const ALBUM_HREF = /\/albums\/(\d+)/;
   const COLLECTION_HREF = /\/collections\/(\d+)/;
   const CATEGORY_HREF = /\/categories\/(\d+)/;
@@ -272,7 +275,7 @@
     // Filtered up front rather than skipped in the loop: cardRootFor tests
     // containment against this list and must not count our own cards.
     const anchors = Array.from(document.querySelectorAll(CARD_SEL))
-      .filter(a => !a.closest('.ygx-root') && !a.closest('.pagination__main'));
+      .filter(a => !a.closest(SKIP_SEL));
     const groups = new Map();
 
     for (const a of anchors) {
@@ -705,6 +708,7 @@
     if (!state.endless || !state.enabled) return;
     if (!endless.seen.size) {
       document.querySelectorAll(CARD_SEL).forEach(a => {
+        if (a.closest(SKIP_SEL)) return;
         const m = (a.getAttribute('href') || '').match(ALBUM_HREF);
         if (m) endless.seen.add(m[1]);
       });
@@ -1056,10 +1060,15 @@
   }
   [data-ygx-on] .broadcastbar__wrap pre { color: var(--ygx-bar-dim) !important; }
 
-  /* All-categories dropdown, which Yupoo fixes over the page. */
-  [data-ygx-on] .showheader__category_new {
+  /* All-categories dropdown. Yupoo ships two templates of it and which one a
+     shop gets is server-side, so both are themed: .showheader__category_new
+     (fixed, flex, macy columns) and .showheader__category (absolute, two
+     floated 50% columns). Both come white with a light-grey frame. */
+  [data-ygx-on] .showheader__category_new,
+  [data-ygx-on] .showheader__category {
     background: var(--ygx-bar) !important;
     border: 1px solid var(--ygx-bar-line) !important;
+    border-radius: 12px !important;
     box-shadow: 0 12px 30px var(--ygx-drop) !important;
   }
   /* Swept, not named: the tree's text is #494949, so anything missed once the
@@ -1069,8 +1078,36 @@
   [data-ygx-on] .showheader__category_new p,
   [data-ygx-on] .showheader__category_new li,
   [data-ygx-on] .showheader__category_new span,
-  [data-ygx-on] .showheader__category_new div { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .showheader__category_new div,
+  [data-ygx-on] .showheader__category,
+  [data-ygx-on] .showheader__category a,
+  [data-ygx-on] .showheader__category li { color: var(--ygx-bar-item) !important; }
   [data-ygx-on] .showheader__link:hover { color: var(--ygx-bar-acc) !important; }
+
+  /* The old template's centre divider, a ::before drawn at #d3d3d3. */
+  [data-ygx-on] .showheader__category:before { border-left-color: var(--ygx-bar-line) !important; }
+  [data-ygx-on] .showheader__category li {
+    border-radius: 7px;
+    transition: background .15s, color .15s;
+  }
+  /* Yupoo fills the row #49bc85 with white text, which survives the dark
+     theme intact. Retinted to the sidebar's hover, not its selected state:
+     these rows are a menu and none of them is ever current. */
+  [data-ygx-on] .showheader__category li:hover {
+    background: var(--ygx-bar-hover) !important;
+    color: var(--ygx-bar-active) !important;
+  }
+  /* The list scrolls once the menu is open and the shop has enough
+     categories, so its scrollbar needs the sidebar's treatment. */
+  [data-ygx-on] .showheader__categoryList {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ygx-bar-thumb) transparent;
+  }
+  [data-ygx-on] .showheader__categoryList::-webkit-scrollbar { width: 8px; }
+  [data-ygx-on] .showheader__categoryList::-webkit-scrollbar-thumb {
+    background: var(--ygx-bar-thumb); border-radius: 99px; border: 2px solid var(--ygx-bar);
+  }
+  [data-ygx-on] .showheader__categoryList::-webkit-scrollbar-track { background: transparent; }
 
   /* Every shop-authored page (contact, "how to order") shares .htmlwrap__main.
      Yupoo's half-transparent tint and dashed green border wash out when dark.
@@ -1158,6 +1195,7 @@
      is the reverse case, so it inverts in the light theme instead. */
   [data-ygx-on] .search__searchIcon,
   [data-ygx-on] .showheader__category_collapse,
+  [data-ygx-on] .socialshare__shareIcon img,
   [data-ygx-on] .categories__box-right-pagination-button { filter: invert(1); }
 
   /* ---- /categories sidebar (tree shape is in CLAUDE.md) ---------------- */
@@ -1441,6 +1479,74 @@
   }
   [data-ygx-on] .socialshare__shareModal h4,
   [data-ygx-on] .socialshare__shareModal h5 { color: var(--ygx-bar-text) !important; }
+  /* "Other ways to share" is a #fff chip masking a gap in the rule behind it.
+     Invisible on Yupoo's white modal, a white slab on ours. */
+  [data-ygx-on] .socialshare__midPartLine span {
+    background: var(--ygx-bar) !important;
+    color: var(--ygx-bar-dim) !important;
+  }
+  [data-ygx-on] .socialshare__midPartLine:before { background-color: var(--ygx-bar-line) !important; }
+  [data-ygx-on] .socialshare__shareIcon { border-color: var(--ygx-bar-line) !important; }
+  [data-ygx-on] .socialshare__shareIcon:hover { background: var(--ygx-bar-hover) !important; }
+
+  /* ---- Photo viewer: /<photoId>, and the same markup as the lightbox ---- */
+
+  /* Yupoo's greys predate the theme: #515151 surround, #424242 info column,
+     #49bc85 links. .viewer__main is the whole fixed viewer. */
+  [data-ygx-on] .viewer__main {
+    background: var(--ygx-page) !important;
+    color: var(--ygx-bar-text) !important;
+  }
+  [data-ygx-on] .viewer__empty { background: var(--ygx-bar-alt) !important; }
+  [data-ygx-on] .viewer__oldwrap,
+  [data-ygx-on] .viewer__toggle_info { background: var(--ygx-bar) !important; }
+  [data-ygx-on] .viewer__oldwrap { border-left: 1px solid var(--ygx-bar-line) !important; }
+  /* The info column's scroll shadows are four gradients baked at #424242. */
+  [data-ygx-on] .viewer__infowrap {
+    background-image: none !important;
+    scrollbar-width: thin;
+    scrollbar-color: var(--ygx-bar-thumb) transparent;
+  }
+  [data-ygx-on] .viewer__infowrap::-webkit-scrollbar { width: 8px; }
+  [data-ygx-on] .viewer__infowrap::-webkit-scrollbar-thumb {
+    background: var(--ygx-bar-thumb); border-radius: 99px; border: 2px solid var(--ygx-bar);
+  }
+  [data-ygx-on] .viewer__infowrap::-webkit-scrollbar-track { background: transparent; }
+  [data-ygx-on] .viewer__title { color: var(--ygx-bar-strong) !important; }
+  [data-ygx-on] .viewer__info { color: var(--ygx-bar-item) !important; }
+  [data-ygx-on] .yupoo-viewer-label { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .viewer__oldwrap a,
+  [data-ygx-on] .viewer__picInfo .viewer__picName a { color: var(--ygx-bar-acc-text) !important; }
+
+  /* The arrows and the close icon are white on Yupoo's grey, so they need a
+     surface of their own or the light theme loses them into the page. */
+  [data-ygx-on] .viewer__next,
+  [data-ygx-on] .viewer__prev { background: var(--ygx-bar) !important; }
+  [data-ygx-on] .viewer__next i,
+  [data-ygx-on] .viewer__prev i,
+  [data-ygx-on] .viewer__toolbar { color: var(--ygx-bar-item) !important; }
+
+  /* Bottom bar: the buttons, plus the thumbnail strip that slides up behind. */
+  [data-ygx-on] .viewer__thumbnailswrap {
+    background: var(--ygx-bar) !important;
+    border-top: 1px solid var(--ygx-bar-line) !important;
+  }
+  [data-ygx-on] .viewer__thumbnails { background: var(--ygx-bar-alt) !important; }
+  [data-ygx-on] .viewer__thumbnail { border-color: var(--ygx-bar-acc) !important; }
+  /* Same treatment as the album header's buttons, and for the same reason:
+     Yupoo fills .button green on hover, which is louder than the chrome. */
+  [data-ygx-on] .viewer__btns .button,
+  [data-ygx-on] .viewer__bottomButtons .button {
+    background: transparent !important;
+    border-color: var(--ygx-bar-line) !important;
+    color: var(--ygx-bar-item) !important;
+  }
+  [data-ygx-on] .viewer__btns .button:hover,
+  [data-ygx-on] .viewer__bottomButtons .button:hover {
+    background: transparent !important;
+    border-color: var(--ygx-bar-hover-line) !important;
+    color: var(--ygx-bar-strong) !important;
+  }
 
   /* The photo grid answers the Card size slider and the active design's min
      width, so the panel controls do something here too. All three of Yupoo's
@@ -1862,6 +1968,7 @@
   /* Yupoo's own icons are already dark, so the dark theme's flip comes off. */
   [data-ygx-theme="light"][data-ygx-on] .search__searchIcon,
   [data-ygx-theme="light"][data-ygx-on] .showheader__category_collapse,
+  [data-ygx-theme="light"][data-ygx-on] .socialshare__shareIcon img,
   [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination-button { filter: none; }
 
   [data-ygx-theme="light"] .ygx-root {
