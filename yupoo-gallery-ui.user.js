@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.11.1
+// @version      2.11.2
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
@@ -1529,6 +1529,14 @@
     overflow: visible !important;
     text-overflow: clip !important;
     overflow-wrap: anywhere;
+  }
+  /* Wrapping only shows if the rows can grow. These are pinned to height 22px,
+     so a second line overflowed onto the label underneath. */
+  [data-ygx-on] .viewer__infowrap .yupoo-viewer-label,
+  [data-ygx-on] .viewer__infowrap .yupoo-viewer-item,
+  [data-ygx-on] .viewer__infowrap .yupoo-viewer-cate-item {
+    height: auto !important;
+    line-height: 1.45 !important;
   }
 
   /* The arrows and the close icon are white on Yupoo's grey, so they need a
