@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.11.0
+// @version      2.11.1
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
@@ -1522,6 +1522,14 @@
   [data-ygx-on] .yupoo-viewer-label { color: var(--ygx-bar-dim) !important; }
   [data-ygx-on] .viewer__oldwrap a,
   [data-ygx-on] .viewer__picInfo .viewer__picName a { color: var(--ygx-bar-acc-text) !important; }
+  /* Yupoo clips the album and category names to one line with .text_overflow.
+     The column is 320px and shop titles are long, so here they wrap. */
+  [data-ygx-on] .viewer__infowrap .text_overflow {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere;
+  }
 
   /* The arrows and the close icon are white on Yupoo's grey, so they need a
      surface of their own or the light theme loses them into the page. */
@@ -1921,9 +1929,24 @@
   /* Track and thumb are drawn here because accent-color only reaches the fill:
      the track stays Chromium's white slab, which is loud in a dark panel.
      --ygx-fill is the value as a percentage, set on input. */
-  .ygx-range {
-    flex: 1; cursor: pointer; height: 13px;
-    -webkit-appearance: none; appearance: none; background: transparent;
+  .ygx-range { flex: 1; }
+  /* Host-page armour, as for the panel's buttons. Yupoo styles
+     input:not([type=checkbox]) at (0,1,1), which outranks a single class, so
+     without this the control keeps a white background, .6em of padding and a
+     grey border that turns green on hover. Checkboxes are exempt there. */
+  .ygx-panel .ygx-range,
+  .ygx-panel .ygx-range:hover,
+  .ygx-panel .ygx-range:focus {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    background: transparent !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    outline: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 13px !important;
+    cursor: pointer;
   }
   .ygx-range::-webkit-slider-runnable-track {
     height: 4px; border-radius: 99px;
