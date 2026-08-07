@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.10.3
+// @version      2.11.0
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
@@ -872,11 +872,16 @@
     range.max = '1.8';
     range.step = '0.1';
     range.value = String(state.density);
+    // The webkit track is a two-stop gradient, so the fill point is a variable.
+    const paintRange = () => range.style.setProperty('--ygx-fill',
+      ((range.value - range.min) / (range.max - range.min) * 100).toFixed(2) + '%');
     range.addEventListener('input', () => {
       state.density = Number(range.value);
       store.set('density', state.density);
       applyDensity();
+      paintRange();
     });
+    paintRange();
     densRow.appendChild(range);
     bodyEl.appendChild(densRow);
 
@@ -1913,7 +1918,30 @@
     margin-left: auto; font-size: 10px; letter-spacing: .3px; color: var(--ygx-panel-note);
     border: 1px solid var(--ygx-panel-line); border-radius: 5px; padding: 1px 5px;
   }
-  .ygx-range { flex: 1; accent-color: var(--ygx-bar-acc); }
+  /* Track and thumb are drawn here because accent-color only reaches the fill:
+     the track stays Chromium's white slab, which is loud in a dark panel.
+     --ygx-fill is the value as a percentage, set on input. */
+  .ygx-range {
+    flex: 1; cursor: pointer; height: 13px;
+    -webkit-appearance: none; appearance: none; background: transparent;
+  }
+  .ygx-range::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 99px;
+    background: linear-gradient(90deg,
+      var(--ygx-bar-acc) var(--ygx-fill, 50%), var(--ygx-panel-line) var(--ygx-fill, 50%));
+  }
+  /* Half the difference between thumb and track, or the thumb rides high. */
+  .ygx-range::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 13px; height: 13px; margin-top: -4.5px;
+    border: none; border-radius: 50%; background: var(--ygx-bar-acc);
+  }
+  /* Firefox fills the track itself, so it needs no --ygx-fill. */
+  .ygx-range::-moz-range-track { height: 4px; border-radius: 99px; background: var(--ygx-panel-line); }
+  .ygx-range::-moz-range-progress { height: 4px; border-radius: 99px; background: var(--ygx-bar-acc); }
+  .ygx-range::-moz-range-thumb {
+    width: 13px; height: 13px; border: none; border-radius: 50%; background: var(--ygx-bar-acc);
+  }
   .ygx-toggle {
     all: unset; cursor: pointer; text-align: center; padding: 7px; border-radius: 8px;
     font-size: 11.5px; font-weight: 600;
