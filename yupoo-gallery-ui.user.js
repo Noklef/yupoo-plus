@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Gallery UI+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.11.2
+// @version      2.11.3
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
@@ -1361,12 +1361,20 @@
     /* Left edge lines up with the first card; the right reserves the More button. */
     padding: 0 72px 0 24px !important;
     margin: 0 0 12px !important;
+    /* Yupoo frames the row in #ececec. The pills carry their own borders, so
+       the strip needs no container of its own. */
+    border: 0 !important;
   }
   /* Yupoo pins every wrapper to 179px, so a short label reserves as much room as
      the longest one. Let the pills hug their text instead. */
   [data-ygx-on] .categories__box-right-category-item-trick-wrap {
     width: auto !important;
     margin: 0 !important;
+  }
+  /* Expanded only, Yupoo rules off each row with an #ececec ::after that runs
+     24px past the wrapper. Our pills hug their text, so it is a stray dash. */
+  [data-ygx-on] .categories__box-right-category-item-trick-wrap::after {
+    display: none !important;
   }
   [data-ygx-on] .categories__box-right-category-item {
     display: inline-block;
