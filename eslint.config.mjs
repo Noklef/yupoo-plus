@@ -1,5 +1,6 @@
 // Flat config for a Tampermonkey userscript.
-// No plugin dependencies, so `npx eslint .` works against a bare install.
+
+import userscripts from 'eslint-plugin-userscripts';
 
 const browser = {
   window: 'readonly', document: 'readonly', location: 'readonly',
@@ -44,6 +45,11 @@ export default [
       'no-implicit-globals': 'error',
       'consistent-return': 'warn',
     },
+  },
+  {
+    files: ['src/*.user.js'],
+    plugins: { userscripts },
+    rules: { ...userscripts.configs.recommended.rules },
   },
   {
     // The config file itself is ESM, not a userscript.
