@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Yupoo+
+// @name         Yupoo Plus
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.11.5
+// @version      2.11.6
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @author       Noklef
 // @license      MIT
@@ -839,7 +839,7 @@
     panel.classList.toggle('is-collapsed', state.collapsed);
 
     const head = el('div', 'ygx-panel-head');
-    head.appendChild(el('span', 'ygx-panel-title', 'Yupoo+'));
+    head.appendChild(el('span', 'ygx-panel-title', 'Yupoo Plus'));
     const collapse = el('button', 'ygx-icon-btn', state.collapsed ? '+' : '−');
     collapse.title = 'Collapse';
     collapse.addEventListener('click', () => {
@@ -926,13 +926,18 @@
     bodyEl.appendChild(toggle);
 
     // Credit line, outside every block .is-disabled dims, so it survives a
-    // restore. The anchor opens in a new tab rather than off the shop page.
+    // restore. Both links open in a new tab rather than off the shop page.
+    const creditLink = (text, href) => {
+      const a = el('a', 'ygx-credit-link', text);
+      a.href = href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      return a;
+    };
     const credit = el('div', 'ygx-credit', 'Created by ');
-    const creditLink = el('a', 'ygx-credit-link', 'Noklef');
-    creditLink.href = 'https://github.com/Noklef/yupoo-plus';
-    creditLink.target = '_blank';
-    creditLink.rel = 'noopener noreferrer';
-    credit.appendChild(creditLink);
+    credit.appendChild(creditLink('Noklef', 'https://github.com/Noklef'));
+    credit.appendChild(el('span', 'ygx-credit-sep', '·'));
+    credit.appendChild(creditLink('Source code', 'https://github.com/Noklef/yupoo-plus'));
     bodyEl.appendChild(credit);
 
     panel.appendChild(bodyEl);
@@ -950,7 +955,7 @@
     });
     const t = panel.querySelector('#ygx-toggle');
     if (t) {
-      t.textContent = state.enabled ? 'Restore original layout' : 'Enable Yupoo+';
+      t.textContent = state.enabled ? 'Restore original layout' : 'Enable Yupoo Plus';
       t.classList.toggle('is-off', !state.enabled);
     }
     // A class, not inline styles: the dim value belongs in the stylesheet, and
@@ -2017,6 +2022,7 @@
     color: var(--ygx-bar-acc) !important; font-weight: 600 !important; text-decoration: none !important;
   }
   .ygx-panel .ygx-credit-link:hover { text-decoration: underline !important; }
+  .ygx-credit-sep { margin: 0 5px; opacity: .55; }
 
   /* ---- Light theme (default): two token blocks and five exceptions ------ */
 
