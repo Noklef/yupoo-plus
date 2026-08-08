@@ -3,7 +3,7 @@
 
 I never really liked how annoying Yupoo looked with the small images, so I made a userscript to clean it up.
 
-**NOTE:** This has been developed & tested using FireFox / Tampermonkey, so if there are any errors with other Chromium-based browsers or GreaseMonkey, please raise an issue in the github repo!
+**NOTE:** This has been developed & tested using ***Firefox*** / ***Tampermonkey***, so if there are any errors with other Chromium-based browsers or GreaseMonkey, please raise an [issue](https://github.com/Noklef/yupoo-plus/issues)!
 
 ## Features
 - Redesigned UI
