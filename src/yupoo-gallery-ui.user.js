@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Yupoo Plus
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.11.6
-// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
+// @version      2.11.7
+// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control.
 // @author       Noklef
 // @license      MIT
 // @homepageURL  https://github.com/Noklef/yupoo-plus
@@ -936,7 +936,7 @@
     };
     const credit = el('div', 'ygx-credit', 'Created by ');
     credit.appendChild(creditLink('Noklef', 'https://github.com/Noklef'));
-    credit.appendChild(el('span', 'ygx-credit-sep', '·'));
+    credit.appendChild(el('span', 'ygx-credit-sep', '|'));
     credit.appendChild(creditLink('Source code', 'https://github.com/Noklef/yupoo-plus'));
     bodyEl.appendChild(credit);
 
