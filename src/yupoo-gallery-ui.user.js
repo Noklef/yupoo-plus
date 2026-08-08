@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Yupoo Plus
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.11.9
-// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control.
+// @version      2.12.0
+// @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, cross-shop album favorites.
 // @author       Noklef
 // @license      MIT
 // @homepage     https://github.com/Noklef/yupoo-plus
@@ -68,6 +68,13 @@
     collapsed: false,
   };
 
+  // Cap, not a budget: the record is small, but GM storage is one blob and a
+  // runaway list would be re-serialised on every heart click.
+  const FAV_MAX = 500;
+  // Enough for the Info strip and the Showcase hover cycle to still work when a
+  // favorite is viewed from a different shop.
+  const FAV_IMAGES = 4;
+
   // Live, not a snapshot: cards outlive the query, so the hover cycle reads it
   // each time rather than baking the boot-time answer in.
   const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -120,6 +127,9 @@
     widen: store.get("widen", DEFAULTS.widen) !== false,
     theme: store.get("theme", DEFAULTS.theme),
     collapsed: store.get("collapsed", DEFAULTS.collapsed) === true,
+    // Deliberately not persisted, unlike every other setting: it is a thing you
+    // open, not a preference, and a saved true would reopen it on every page.
+    favsOpen: false,
     // Forced off while shelved, so a previously saved true does not revive it.
     endless: ENDLESS_READY && store.get("endless", DEFAULTS.endless) === true,
   };
@@ -136,7 +146,8 @@
     'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
   // Never scraped: our own cards, the pager, and Yupoo's photo viewer, which
   // holds a live /albums/<id> link and a thumbnail strip once a photo is open.
-  const SKIP_SEL = ".ygx-root, .pagination__main, .viewer__main";
+  const SKIP_SEL =
+    ".ygx-root, .ygx-fav-overlay, .pagination__main, .viewer__main";
   const ALBUM_HREF = /\/albums\/(\d+)/;
   const COLLECTION_HREF = /\/collections\/(\d+)/;
   const CATEGORY_HREF = /\/categories\/(\d+)/;
@@ -213,10 +224,8 @@
     { name: "RMB259", src: "(?:RMB|CNY)\\s*" + NUM },
   ];
 
-  // Compiled defensively: lookbehind is unsupported on some older engines, and
-  // an uncompilable literal would take the whole userscript down at parse time.
-  // A pattern that will not compile falls back to its `alt`, so the format
-  // degrades to looser matching instead of disappearing.
+  // Compiled defensively: an uncompilable lookbehind would take the whole
+  // userscript down at parse time. A failure falls back to the looser `alt`.
   const PRICE_RES = PRICE_PATTERNS.map((p) => {
     for (const src of [p.src, p.alt]) {
       if (!src) continue;
@@ -417,6 +426,8 @@
 
         item = Object.assign(base, {
           empty,
+          // Host-qualified, because the same album id exists on every shop.
+          key: favKey(a.href),
           // Only the price is parsed out; the rest of the string stays verbatim.
           price: pm ? pm.value : "",
           title: (pm ? rawTitle.replace(pm.matched, "") : rawTitle)
@@ -436,6 +447,127 @@
       .filter(([, items]) => items.length)
       .map(([grid, items]) => ({ grid, items }));
   }
+
+  /* ---- 2b. Favorites --------------------------------------------------- */
+
+  // One list, newest first, plus a key index so a card can ask "am I saved?"
+  // without a scan. Both are rebuilt together; never write to one alone.
+  let favList = [];
+  const favIndex = new Map();
+
+  // The shop is part of the identity: /albums/2884671 exists on every host, so
+  // the id alone would collide the moment two shops are favorited.
+  function favKey(href) {
+    try {
+      const u = new URL(href, location.href);
+      const m = u.pathname.match(ALBUM_HREF);
+      return m ? u.host + "/" + m[1] : "";
+    } catch {
+      return "";
+    }
+  }
+
+  // First label of the host, which is what shops are actually known by.
+  function shopName(href) {
+    try {
+      return new URL(href, location.href).host.split(".")[0] || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function indexFavs() {
+    favIndex.clear();
+    favList.forEach((r) => favIndex.set(r.key, r));
+  }
+
+  // The one place a record takes its shape. `key` and `shop` are rebuilt from
+  // the href, never read, so storage cannot contradict itself.
+  function hydrate(rec) {
+    if (!rec || typeof rec.href !== "string") return null;
+    const key = favKey(rec.href);
+    if (!key) return null;
+    const str = (v) => (typeof v === "string" ? v : "");
+    return {
+      key,
+      href: rec.href,
+      title: str(rec.title),
+      price: str(rec.price),
+      count: str(rec.count),
+      images: (Array.isArray(rec.images) ? rec.images : [])
+        .filter((u) => typeof u === "string" && u)
+        .slice(0, FAV_IMAGES),
+      shop: shopName(rec.href),
+      at: Number(rec.at) || 0,
+    };
+  }
+
+  function loadFavs() {
+    const raw = store.get("favs", []);
+    favList = (Array.isArray(raw) ? raw : [])
+      .map(hydrate)
+      .filter(Boolean)
+      .slice(0, FAV_MAX);
+    indexFavs();
+  }
+
+  // Derived fields are projected out: the href is the only identity that goes
+  // to storage, and hydrate puts the rest back on the next load.
+  function saveFavs() {
+    store.set(
+      "favs",
+      favList.map((r) => ({
+        href: r.href,
+        title: r.title,
+        price: r.price,
+        count: r.count,
+        images: r.images,
+        at: r.at,
+      })),
+    );
+  }
+
+  function isFav(key) {
+    return !!key && favIndex.has(key);
+  }
+
+  // Returns the state it landed in, so the caller can repaint without re-asking.
+  function toggleFav(item) {
+    const k = item.key;
+    if (!k) return false;
+    if (favIndex.has(k)) {
+      favList.splice(favList.indexOf(favIndex.get(k)), 1);
+      favIndex.delete(k);
+    } else {
+      // Through hydrate like everything else, so a scraped item and a stored
+      // record cannot drift into two different record shapes.
+      const rec = hydrate({ ...item, at: Date.now() });
+      if (!rec) return false;
+      favList.unshift(rec);
+      if (favList.length > FAV_MAX) favList.length = FAV_MAX;
+      indexFavs();
+    }
+    saveFavs();
+    return favIndex.has(k);
+  }
+
+  // A hydrated record back into buildCard's shape. The shop is always carried:
+  // in a cross-shop list an unlabelled card reads as "no shop", not "this one".
+  function favItem(rec) {
+    return {
+      href: rec.href,
+      target: "",
+      key: rec.key,
+      title: rec.title,
+      price: rec.price,
+      count: rec.count,
+      images: rec.images,
+      empty: !rec.images.length,
+      shop: rec.shop,
+    };
+  }
+
+  loadFavs();
 
   /* ---- 3. Rendering ---------------------------------------------------- */
 
@@ -485,6 +617,15 @@
     '<circle cx="15.5" cy="8.5" r="1.4"/>' +
     '<path d="M3.4 3.4l17.2 17.2"/></svg>';
 
+  // One path, outlined by default; .is-on fills it from CSS rather than
+  // swapping markup, so a toggle never touches the DOM shape.
+  const HEART_ICON =
+    '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M12 20.3l-1.4-1.3C5.4 14.4 2 11.3 2 7.6 2 4.6 4.4 2.2 7.4 2.2c1.7 0 ' +
+    "3.4.8 4.6 2.1 1.2-1.3 2.9-2.1 4.6-2.1 3 0 5.4 2.4 5.4 5.4 0 3.7-3.4 6.8-8.6 " +
+    '11.4L12 20.3z"/></svg>';
+
   // Shared by the empty-album card and by an image whose fallbacks all 404.
   function emptyBox(label) {
     const box = el("div", "ygx-empty-box");
@@ -498,6 +639,45 @@
   function stopCycle() {
     clearInterval(cycleTimer);
     cycleTimer = null;
+  }
+
+  // Lives inside the card's <a>, so both preventDefault and stopPropagation are
+  // needed: without them a heart click navigates to the album.
+  function favButton(item) {
+    const b = el("button", "ygx-fav");
+    b.type = "button";
+    b.innerHTML = HEART_ICON;
+
+    const paint = (on) => {
+      b.classList.toggle("is-on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      const label = on ? "Remove from favorites" : "Save to favorites";
+      b.title = label;
+      b.setAttribute("aria-label", label);
+    };
+    paint(isFav(item.key));
+
+    b.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const on = toggleFav(item);
+      paint(on);
+      syncPanel();
+      // Unfavorited from inside the overlay. Removed in place rather than
+      // rebuilt, which re-decodes every remaining image for one removal.
+      if (!on && b.closest(".ygx-fav-body")) {
+        const card = b.closest(".ygx-card");
+        if (card) card.remove();
+        // A full rebuild only when the removal emptied the list or the shop
+        // being filtered to; otherwise just the counts move.
+        if (!favList.length || (favShop && !favVisible().length)) fillFavs();
+        else {
+          syncFavShops();
+          syncFavHead();
+        }
+      }
+    });
+    return b;
   }
 
   function buildCard(item, design) {
@@ -559,6 +739,9 @@
       media.appendChild(
         el("span", "ygx-price-float", PRICE_SYMBOL + item.price),
       );
+    // In the media area, mirroring the price pill: Dense hides .ygx-body
+    // entirely until hover, so the body is not a place a control can live.
+    if (item.key) media.appendChild(favButton(item));
     media.appendChild(el("span", "ygx-scrim"));
 
     const body = el("div", "ygx-body");
@@ -571,6 +754,8 @@
       meta.appendChild(el("span", "ygx-price", PRICE_SYMBOL + item.price));
     if (item.count)
       meta.appendChild(el("span", "ygx-chip", item.count + " photos"));
+    // Only set on a favorite saved from another shop, so it never shows here.
+    if (item.shop) meta.appendChild(el("span", "ygx-shop", item.shop));
     if (meta.children.length) body.appendChild(meta);
 
     a.appendChild(media);
@@ -639,9 +824,8 @@
     mounted.set(grid, { root, gridEl, keys: items.map((i) => i.href) });
   }
 
-  // Same cards in the same order means the mounted DOM is still correct, and a
-  // pure append only builds the tail. Rebuilding re-decodes every image, which
-  // is what made a mutation-triggered render so expensive.
+  // Same cards in the same order means the DOM is still correct, and a pure
+  // append only builds the tail. A rebuild re-decodes every image.
   function reconcile(m, items) {
     if (!m.root.isConnected || items.length < m.keys.length) return false;
     for (let i = 0; i < m.keys.length; i++) {
@@ -656,6 +840,201 @@
       m.keys = items.map((i) => i.href);
     }
     return true;
+  }
+
+  /* ---- 3a. Favorites overlay ------------------------------------------- */
+
+  // An overlay, not a stand-in for the grid: it hides nothing of Yupoo's, so
+  // there is no page type it can be wrong on and no restore to get right.
+  let favOverlay = null;
+  // Empty means every shop. Reset on open, so the list never opens filtered.
+  let favShop = "";
+
+  function favShops() {
+    return new Set(favList.map((r) => r.shop).filter(Boolean)).size;
+  }
+
+  // Shop plus its count, busiest first, ties alphabetical.
+  function favShopCounts() {
+    const m = new Map();
+    favList.forEach((r) => r.shop && m.set(r.shop, (m.get(r.shop) || 0) + 1));
+    return Array.from(m.entries()).sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+    );
+  }
+
+  function favVisible() {
+    return favShop ? favList.filter((r) => r.shop === favShop) : favList;
+  }
+
+  // Rebuilt rather than patched: it is a handful of options, and the active
+  // shop may have just lost its last album.
+  function syncFavShops() {
+    if (!favOverlay) return;
+    const sel = favOverlay.querySelector(".ygx-fav-shop");
+    if (!sel) return;
+    const counts = favShopCounts();
+    if (favShop && !counts.some((c) => c[0] === favShop)) favShop = "";
+    // The wrapper, not the select: it draws the chevron and would be left
+    // behind. One shop is nothing to filter, so the control goes entirely.
+    sel.parentElement.style.display = counts.length > 1 ? "" : "none";
+    sel.textContent = "";
+    const add = (value, label) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      sel.appendChild(o);
+    };
+    add("", "All shops (" + favList.length + ")");
+    counts.forEach((c) => add(c[0], c[0] + " (" + c[1] + ")"));
+    sel.value = favShop;
+  }
+
+  // One phrase, not a count beside a note: a bare number between two labels
+  // reads as an orphan. Empty while the list is; the empty state says it better.
+  function syncFavHead() {
+    if (!favOverlay) return;
+    const sub = favOverlay.querySelector(".ygx-fav-sub");
+    if (!sub) return;
+    const n = favList.length;
+    const word = n === 1 ? " album" : " albums";
+    const shops = favShops();
+    // Filtered, the total stays on screen: otherwise the count contradicts the
+    // filter sitting next to it.
+    sub.textContent = !n
+      ? ""
+      : favShop
+        ? favVisible().length + " of " + n + word
+        : n + word + (shops > 1 ? " across " + shops + " shops" : "");
+  }
+
+  function favEmpty() {
+    const box = el("div", "ygx-fav-empty");
+    const icon = el("span", "ygx-fav-empty-icon");
+    icon.innerHTML = HEART_ICON;
+    box.appendChild(icon);
+    box.appendChild(el("div", "ygx-fav-empty-title", "No saved albums yet"));
+    box.appendChild(
+      el(
+        "div",
+        "ygx-fav-empty-note",
+        "Click the heart on any album card to save it here. Favorites are kept " +
+          "across every Yupoo shop you visit.",
+      ),
+    );
+    return box;
+  }
+
+  // The card area only. Called on open and on a design change, which is the one
+  // thing buildCard bakes in; density is a variable and needs no rebuild.
+  function fillFavs() {
+    if (!favOverlay) return;
+    // First: it can clear a filter whose shop no longer has anything in it.
+    syncFavShops();
+    const body = favOverlay.querySelector(".ygx-fav-body");
+    stopCycle();
+    body.textContent = "";
+
+    const items = favVisible();
+    if (!items.length) {
+      body.appendChild(favEmpty());
+      syncFavHead();
+      return;
+    }
+    const gridEl = el("div", "ygx-grid");
+    gridEl.setAttribute("data-design", state.design);
+    const frag = document.createDocumentFragment();
+    items.forEach((r) => frag.appendChild(buildCard(favItem(r), state.design)));
+    gridEl.appendChild(frag);
+    body.appendChild(gridEl);
+    syncFavHead();
+  }
+
+  function buildFavOverlay() {
+    favOverlay = el("div", "ygx-fav-overlay");
+
+    const back = el("div", "ygx-fav-backdrop");
+    back.addEventListener("click", () => setFavsOpen(false));
+    favOverlay.appendChild(back);
+
+    const sheet = el("div", "ygx-fav-sheet");
+    sheet.setAttribute("role", "dialog");
+    sheet.setAttribute("aria-modal", "true");
+    sheet.setAttribute("aria-label", "Favorites");
+
+    const head = el("div", "ygx-fav-head");
+    const icon = el("span", "ygx-fav-head-icon");
+    icon.innerHTML = HEART_ICON;
+    head.appendChild(icon);
+    head.appendChild(el("span", "ygx-fav-head-title", "Favorites"));
+    // Wrapped so the chevron can be drawn on the wrapper: the select's own
+    // arrow is browser-drawn, and a background-image cannot take currentColor.
+    const shopWrap = el("div", "ygx-fav-shop-wrap");
+    const shop = el("select", "ygx-fav-shop");
+    shop.title = "Filter by shop";
+    shop.setAttribute("aria-label", "Filter favorites by shop");
+    shop.addEventListener("change", () => {
+      favShop = shop.value;
+      fillFavs();
+    });
+    shopWrap.appendChild(shop);
+    head.appendChild(shopWrap);
+
+    // The group carries the auto margin, so the close button holds its place
+    // whether or not the count beside it is filled in.
+    const right = el("div", "ygx-fav-head-right");
+    right.appendChild(el("span", "ygx-fav-sub", ""));
+
+    const close = el("button", "ygx-fav-close", "×");
+    close.type = "button";
+    close.title = "Close";
+    close.setAttribute("aria-label", "Close favorites");
+    close.addEventListener("click", () => setFavsOpen(false));
+    right.appendChild(close);
+    head.appendChild(right);
+    sheet.appendChild(head);
+
+    // .ygx-root carries the card token block, so the grid inside gets every
+    // card colour free. The chrome around it takes the :root bar tokens.
+    const body = el("div", "ygx-root ygx-fav-body");
+    sheet.appendChild(body);
+
+    favOverlay.appendChild(sheet);
+
+    // Not `overflow: hidden` on body: that drops the viewport scrollbar and
+    // shifts the layout right. Only a scrollable list is let through.
+    ["wheel", "touchmove"].forEach((ev) =>
+      favOverlay.addEventListener(
+        ev,
+        (e) => {
+          const box = e.target.closest && e.target.closest(".ygx-fav-body");
+          if (box && box.scrollHeight > box.clientHeight) return;
+          e.preventDefault();
+        },
+        { passive: false },
+      ),
+    );
+
+    document.body.appendChild(favOverlay);
+  }
+
+  function setFavsOpen(on) {
+    state.favsOpen = on;
+    if (on) {
+      if (!favOverlay) buildFavOverlay();
+      favShop = "";
+      fillFavs();
+      // The grid reads --ygx-min, and a page with nothing to scrape never
+      // reaches render()'s own applyDensity().
+      applyDensity();
+    } else {
+      stopCycle();
+      if (favOverlay) {
+        favOverlay.remove();
+        favOverlay = null;
+      }
+    }
+    syncPanel();
   }
 
   function render(force) {
@@ -971,11 +1350,13 @@
   function setDesign(id) {
     state.design = id;
     store.set("design", id);
-    // Ahead of render(), which returns early on a page with nothing to scrape
-    // and so never reaches its own applyDensity(). The album page's photo grid
-    // reads --ygx-min directly and would otherwise keep the old design's width.
+    // Ahead of render(), which returns early with nothing to scrape and never
+    // reaches its own applyDensity(). The album page's photo grid reads it.
     applyDensity();
     render(true);
+    // The overlay's cards bake the design in too, and it is not on render()'s
+    // path, so it has to be told.
+    fillFavs();
     syncPanel();
   }
 
@@ -1102,6 +1483,17 @@
     }
     bodyEl.appendChild(endRow);
 
+    const favBtn = el("button", "ygx-fav-btn");
+    favBtn.id = "ygx-fav-btn";
+    favBtn.type = "button";
+    const favIcon = el("span", "ygx-fav-btn-icon");
+    favIcon.innerHTML = HEART_ICON;
+    favBtn.appendChild(favIcon);
+    favBtn.appendChild(el("span", "ygx-fav-btn-label", "Favorites"));
+    favBtn.appendChild(el("span", "ygx-fav-btn-count", ""));
+    favBtn.addEventListener("click", () => setFavsOpen(!state.favsOpen));
+    bodyEl.appendChild(favBtn);
+
     const toggle = el("button", "ygx-toggle", "");
     toggle.id = "ygx-toggle";
     toggle.addEventListener("click", () => setEnabled(!state.enabled));
@@ -1137,6 +1529,14 @@
     panel.querySelectorAll(".ygx-theme-btn").forEach((b) => {
       b.classList.toggle("is-active", b.dataset.theme === state.theme);
     });
+    const fav = panel.querySelector("#ygx-fav-btn");
+    if (fav) {
+      fav.classList.toggle("is-active", state.favsOpen);
+      fav.querySelector(".ygx-fav-btn-count").textContent = String(
+        favList.length,
+      );
+      fav.title = state.favsOpen ? "Close favorites" : "Open saved albums";
+    }
     const t = panel.querySelector("#ygx-toggle");
     if (t) {
       t.textContent = state.enabled
@@ -1158,16 +1558,15 @@
 
   /* Yupoo caps the album area at a fixed width. */
   [data-ygx-widen] .showindex__gallerycardwrap,
-    [data-ygx-widen] .show-layout-category__catewrap,
-    [data-ygx-widen] .categories__box,
-    [data-ygx-widen] .categories__box.clearfix,
-    /* The album page's two capped containers. NOT .showalbum__children, which is
-      each photo tile: Yupoo sizes those calc((100% - 16px) / 2), so widening
-      them collapsed the 2-up grid and ate the gutters. */
-    [data-ygx-widen] .showalbum__imagecardwrap,
-    [data-ygx-widen] .showalbumheader__main,
-    [data-ygx-widen] .broadcastbar__wrap,
-    [data-ygx-widen] .pagination__main {
+      [data-ygx-widen] .show-layout-category__catewrap,
+      [data-ygx-widen] .categories__box,
+      [data-ygx-widen] .categories__box.clearfix,
+      /* The album page's two capped containers. NOT .showalbum__children: that
+        is one calc()-sized photo tile, and widening it collapses the grid. */
+      [data-ygx-widen] .showalbum__imagecardwrap,
+      [data-ygx-widen] .showalbumheader__main,
+      [data-ygx-widen] .broadcastbar__wrap,
+      [data-ygx-widen] .pagination__main {
     max-width: none !important;
     width: auto !important;
     margin-left: 0 !important;
@@ -1179,9 +1578,8 @@
 
   /* ---- Page chrome: header stack, broadcast bar, paginator, footer ---- */
 
-  /* On :root, not .ygx-root: the chrome sits outside the grid and cannot
-      inherit from it. Every chrome colour is a token, so the light theme is a
-      re-declaration of this block plus the image-based exceptions. */
+  /* On :root, not .ygx-root: the chrome sits outside the grid. Every colour
+      here is a token, so light is this block re-declared plus the images. */
   :root {
     --ygx-page: #0f1116;
     --ygx-bar: #191c24;
@@ -1204,7 +1602,7 @@
     --ygx-bar-thumb: #39404f;
     --ygx-bar-off: #5b6474;
     /* The accent as text is a darker green than the accent as a surface once
-        the theme flips, so the two are separate tokens. */
+          the theme flips, so the two are separate tokens. */
     --ygx-bar-acc-text: #3fbb85;
     --ygx-bar-acc-wash: rgba(63, 187, 133, 0.14);
     /* Control panel */
@@ -1217,6 +1615,7 @@
     --ygx-panel-note: #6b7488;
     --ygx-panel-off: #5c6577;
     --ygx-panel-shadow: rgba(0, 0, 0, 0.55);
+    --ygx-fav-backdrop: rgba(6, 8, 12, 0.72);
   }
 
   html[data-ygx-on] {
@@ -1227,7 +1626,7 @@
   }
 
   /* Yupoo's own site bar, above the shop's. Its logo is a white PNG, so light
-      mode inverts the logo rather than darkening the bar to keep it legible. */
+        mode inverts the logo rather than darkening the bar to keep it legible. */
   [data-ygx-on] .header__wrap {
     background: var(--ygx-bar) !important;
     border-bottom: 1px solid var(--ygx-bar-line) !important;
@@ -1278,7 +1677,7 @@
   }
 
   /* The wrap owns the pill border and the button is its right cap, so only
-      colours change here; the geometry is left exactly as Yupoo has it. */
+        colours change here; the geometry is left exactly as Yupoo has it. */
   [data-ygx-on] .search__inputWrap {
     background: var(--ygx-bar) !important;
     border-color: var(--ygx-bar-line) !important;
@@ -1303,10 +1702,8 @@
     color: var(--ygx-bar-dim) !important;
   }
 
-  /* All-categories dropdown. Yupoo ships two templates of it and which one a
-      shop gets is server-side, so both are themed: .showheader__category_new
-      (fixed, flex, macy columns) and .showheader__category (absolute, two
-      floated 50% columns). Both come white with a light-grey frame. */
+  /* All-categories dropdown. Which of Yupoo's two templates a shop gets is
+      server-side, so both __category and __category_new are themed. */
   [data-ygx-on] .showheader__category_new,
   [data-ygx-on] .showheader__category {
     background: var(--ygx-bar) !important;
@@ -1315,7 +1712,7 @@
     box-shadow: 0 12px 30px var(--ygx-drop) !important;
   }
   /* Swept, not named: the tree's text is #494949, so anything missed once the
-      panel goes dark would be dark-on-dark. */
+        panel goes dark would be dark-on-dark. */
   [data-ygx-on] .showheader__category_new,
   [data-ygx-on] .showheader__category_new a,
   [data-ygx-on] .showheader__category_new p,
@@ -1341,15 +1738,14 @@
       background 0.15s,
       color 0.15s;
   }
-  /* Yupoo fills the row #49bc85 with white text, which survives the dark
-      theme intact. Retinted to the sidebar's hover, not its selected state:
-      these rows are a menu and none of them is ever current. */
+  /* Yupoo fills the row #49bc85. Retinted to the sidebar's hover, not its
+      selected state: this is a menu and no row is ever current. */
   [data-ygx-on] .showheader__category li:hover {
     background: var(--ygx-bar-hover) !important;
     color: var(--ygx-bar-active) !important;
   }
   /* The list scrolls once the menu is open and the shop has enough
-      categories, so its scrollbar needs the sidebar's treatment. */
+        categories, so its scrollbar needs the sidebar's treatment. */
   [data-ygx-on] .showheader__categoryList {
     scrollbar-width: thin;
     scrollbar-color: var(--ygx-bar-thumb) transparent;
@@ -1366,10 +1762,8 @@
     background: transparent;
   }
 
-  /* Every shop-authored page (contact, "how to order") shares .htmlwrap__main.
-      Yupoo's half-transparent tint and dashed green border wash out when dark.
-      The album description carries the same class, so it is excluded here: the
-      box treatment plus Yupoo's min-height:63px turned one line into a slab. */
+  /* Every shop-authored page shares .htmlwrap__main. The album description
+      carries it too and is excluded: min-height:63px made one line a slab. */
   [data-ygx-on] .htmlwrap__main:not(.showalbumheader__gallerysubtitle) {
     background: var(--ygx-bar) !important;
     border: 1px dashed var(--ygx-bar-line) !important;
@@ -1398,7 +1792,7 @@
   }
 
   /* .pagination__button is the shared base for prev/next, numbers and confirm;
-      .pagination__active is the current page. Arrows are font icons, so: colour. */
+        .pagination__active is the current page. Arrows are font icons, so: colour. */
   [data-ygx-on] .pagination__button {
     background: var(--ygx-bar) !important;
     border-color: var(--ygx-bar-line) !important;
@@ -1463,7 +1857,7 @@
   }
 
   /* Yupoo's dark icons, flipped to read on a dark surface. The white site logo
-      is the reverse case, so it inverts in the light theme instead. */
+        is the reverse case, so it inverts in the light theme instead. */
   [data-ygx-on] .search__searchIcon,
   [data-ygx-on] .showheader__category_collapse,
   [data-ygx-on] .socialshare__shareIcon img,
@@ -1484,7 +1878,7 @@
     scrollbar-width: thin;
     scrollbar-color: var(--ygx-bar-thumb) transparent;
     /* Reserve the track: without it a 1px hover height change toggles the
-        scrollbar and reflows the column, which reads as every row jittering. */
+          scrollbar and reflows the column, which reads as every row jittering. */
     scrollbar-gutter: stable;
   }
   [data-ygx-on] .categories__box-left::-webkit-scrollbar {
@@ -1504,19 +1898,19 @@
     border: 0 !important;
   }
   /* The header owns the row padding, so it owns the toggle hit area. Making the
-      anchor display:block hands the row to the link, leaving nothing to expand. */
+        anchor display:block hands the row to the link, leaving nothing to expand. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-header,
   [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover {
     box-sizing: border-box;
     background: transparent !important;
     /* Geometry is pinned identically across both states — only the colour
-        differs — so nothing Yupoo's own :hover rules add can shift the row. */
+          differs — so nothing Yupoo's own :hover rules add can shift the row. */
     border: 0 !important;
     outline: 0 !important;
     margin: 0 !important;
     padding: 0 10px !important;
     /* Yupoo's line-height:48px strut beats the anchor's padding, leaving a 48px
-        row with the label sitting high. Same defect the content items had. */
+          row with the label sitting high. Same defect the content items had. */
     line-height: 1.4 !important;
     height: auto !important;
     min-height: 0 !important;
@@ -1538,7 +1932,7 @@
     text-decoration: none !important;
     vertical-align: middle;
     /* Pinned so a hover bolding from Yupoo's stylesheet can't change the
-        text's measured width and shove the ellipsis around. */
+          text's measured width and shove the ellipsis around. */
     font-weight: 600 !important;
     white-space: nowrap;
     overflow: hidden;
@@ -1564,7 +1958,7 @@
     font-weight: 600 !important;
   }
   /* Children hang off a guide rail rather than relying on indent alone, so the
-      nesting is legible at a glance instead of being inferred from padding. */
+        nesting is legible at a glance instead of being inferred from padding. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-box {
     margin: 2px 0 6px 17px !important;
     padding: 0 0 0 10px !important;
@@ -1583,7 +1977,7 @@
     border-radius: 7px;
     font-size: 12px !important;
     /* Pinned: without it the row inherits Yupoo's line-height, which doesn't
-        match the 6px padding and leaves the text sitting high in its box. */
+          match the 6px padding and leaves the text sitting high in its box. */
     line-height: 1.5 !important;
     min-height: 0 !important;
     font-weight: 400 !important;
@@ -1620,7 +2014,7 @@
   }
 
   /* The chevron is a ::after at right:16px width:12px, so it reaches 28px in;
-      20px left only 2px of clearance. .yupoo-collapse-item-single has none. */
+        20px left only 2px of clearance. .yupoo-collapse-item-single has none. */
   [data-ygx-on]
     .categories__box-left
     .yupoo-collapse-item:not(.yupoo-collapse-item-single)
@@ -1632,7 +2026,7 @@
   /* ---- Sidebar collapse button ----------------------------------------- */
 
   /* An empty div positioned against .categories__box, so it lands over the first
-      row. Its icon is a background image, so these colours are pre-inverted. */
+        row. Its icon is a background image, so these colours are pre-inverted. */
   [data-ygx-on] .yupoo-categories-hide-sidebar,
   [data-ygx-on] .yupoo-categories-show-sidebar {
     width: 26px !important;
@@ -1653,13 +2047,13 @@
     border-color: #c5bead !important;
   }
   /* Pull it into the row's text column: the card reserves a 10px scrollbar
-      gutter, so left as Yupoo has it the button sits on top of the scrollbar. */
+        gutter, so left as Yupoo has it the button sits on top of the scrollbar. */
   [data-ygx-on] .yupoo-categories-hide-sidebar {
     transform: translate(-24px, -1px);
   }
 
   /* The button sits over the first row, so that row alone reserves its width.
-      Declared after the chevron rule so it wins the 28px reservation. */
+        Declared after the chevron rule so it wins the 28px reservation. */
   [data-ygx-on]
     .categories__box-left
     .yupoo-collapse-item:first-child
@@ -1675,17 +2069,17 @@
     padding: 0 72px 0 24px !important;
     margin: 0 0 12px !important;
     /* Yupoo frames the row in #ececec. The pills carry their own borders, so
-        the strip needs no container of its own. */
+          the strip needs no container of its own. */
     border: 0 !important;
   }
   /* Yupoo pins every wrapper to 179px, so a short label reserves as much room as
-      the longest one. Let the pills hug their text instead. */
+        the longest one. Let the pills hug their text instead. */
   [data-ygx-on] .categories__box-right-category-item-trick-wrap {
     width: auto !important;
     margin: 0 !important;
   }
   /* Expanded only, Yupoo rules off each row with an #ececec ::after that runs
-      24px past the wrapper. Our pills hug their text, so it is a stray dash. */
+        24px past the wrapper. Our pills hug their text, so it is a stray dash. */
   [data-ygx-on] .categories__box-right-category-item-trick-wrap::after {
     display: none !important;
   }
@@ -1748,16 +2142,15 @@
   /* ---- Album detail page, /albums/<id> (shape in CLAUDE.md) ------------- */
 
   /* The header is one panel. flow-root rather than block because the cover is a
-      float no ancestor contains, and a panel it can hang out of looks broken. */
+        float no ancestor contains, and a panel it can hang out of looks broken. */
   [data-ygx-on] .showalbumheader__main {
     display: flow-root !important;
     background: var(--ygx-bar) !important;
     border: 1px solid var(--ygx-bar-line) !important;
     border-radius: 14px !important;
     padding: 14px 16px 16px !important;
-    /* Top and bottom only. Yupoo centres this with margin 0 auto, so a
-        shorthand would left-align the panel whenever widen is off. The 20px
-        matches .showalbum__imagecardwrap's 1.3em top padding below it. */
+    /* Top and bottom only: Yupoo centres this with margin 0 auto, so a
+        shorthand would left-align the panel whenever widen is off. */
     margin-top: 20px !important;
     margin-bottom: 0 !important;
   }
@@ -1775,10 +2168,8 @@
     color: var(--ygx-bar-acc-text) !important;
   }
 
-  /* Yupoo's 1px #cfcfcf frame goes; overflow clips the cover, which is an
-      absolutely positioned .autocover. Nothing may paint on __space: it is only
-      a 136px sizing spacer, but it is position:relative and comes after the
-      image, so it paints over it and a background there blanks the cover. */
+  /* The frame goes and overflow clips the cover. Nothing may paint on __space:
+      it is a relative spacer after the image, so a background blanks it. */
   [data-ygx-on] .showalbumheader__gallerycover {
     border: 0 !important;
     border-radius: 12px;
@@ -1790,7 +2181,7 @@
   }
 
   /* The count sits in the h1 next to the title, separated by an <i> that draws
-      itself from currentColor, so dimming the h1 dims the rule too. */
+        itself from currentColor, so dimming the h1 dims the rule too. */
   [data-ygx-on] .showalbumheader__gallerydec h1 {
     color: var(--ygx-bar-dim) !important;
   }
@@ -1799,7 +2190,7 @@
   }
 
   /* A quiet rail instead of a box: the description is usually one or two lines,
-      and min-height reserved 63px for them. */
+        and min-height reserved 63px for them. */
   [data-ygx-on] .showalbumheader__gallerysubtitle {
     min-height: 0 !important;
     margin: 2px 0 12px !important;
@@ -1826,7 +2217,7 @@
   }
 
   /* Thumbnail / Detail / Big. Gone: the panel's Card size slider owns tile
-      width here, and these three set a competing one. */
+        width here, and these three set a competing one. */
   [data-ygx-on] .showalbumheader__btn-group {
     display: none !important;
   }
@@ -1841,7 +2232,7 @@
     color: var(--ygx-bar-text) !important;
   }
   /* "Other ways to share" is a #fff chip masking a gap in the rule behind it.
-      Invisible on Yupoo's white modal, a white slab on ours. */
+        Invisible on Yupoo's white modal, a white slab on ours. */
   [data-ygx-on] .socialshare__midPartLine span {
     background: var(--ygx-bar) !important;
     color: var(--ygx-bar-dim) !important;
@@ -1859,7 +2250,7 @@
   /* ---- Photo viewer: /<photoId>, and the same markup as the lightbox ---- */
 
   /* Yupoo's greys predate the theme: #515151 surround, #424242 info column,
-      #49bc85 links. .viewer__main is the whole fixed viewer. */
+        #49bc85 links. .viewer__main is the whole fixed viewer. */
   [data-ygx-on] .viewer__main {
     background: var(--ygx-page) !important;
     color: var(--ygx-bar-text) !important;
@@ -1905,7 +2296,7 @@
     color: var(--ygx-bar-acc-text) !important;
   }
   /* Yupoo clips the album and category names to one line with .text_overflow.
-      The column is 320px and shop titles are long, so here they wrap. */
+        The column is 320px and shop titles are long, so here they wrap. */
   [data-ygx-on] .viewer__infowrap .text_overflow {
     white-space: normal !important;
     overflow: visible !important;
@@ -1913,7 +2304,7 @@
     overflow-wrap: anywhere;
   }
   /* Wrapping only shows if the rows can grow. These are pinned to height 22px,
-      so a second line overflowed onto the label underneath. */
+        so a second line overflowed onto the label underneath. */
   [data-ygx-on] .viewer__infowrap .yupoo-viewer-label,
   [data-ygx-on] .viewer__infowrap .yupoo-viewer-item,
   [data-ygx-on] .viewer__infowrap .yupoo-viewer-cate-item {
@@ -1922,7 +2313,7 @@
   }
 
   /* The arrows and the close icon are white on Yupoo's grey, so they need a
-      surface of their own or the light theme loses them into the page. */
+        surface of their own or the light theme loses them into the page. */
   [data-ygx-on] .viewer__next,
   [data-ygx-on] .viewer__prev {
     background: var(--ygx-bar) !important;
@@ -1945,7 +2336,7 @@
     border-color: var(--ygx-bar-acc) !important;
   }
   /* Same treatment as the album header's buttons, and for the same reason:
-      Yupoo fills .button green on hover, which is louder than the chrome. */
+        Yupoo fills .button green on hover, which is louder than the chrome. */
   [data-ygx-on] .viewer__btns .button,
   [data-ygx-on] .viewer__bottomButtons .button {
     background: transparent !important;
@@ -1959,10 +2350,8 @@
     color: var(--ygx-bar-strong) !important;
   }
 
-  /* The photo grid answers the Card size slider and the active design's min
-      width, so the panel controls do something here too. All three of Yupoo's
-      view classes are normalised onto it: the view buttons are hidden, and the
-      class is server-set, so a stale nor/max/min would otherwise stick. */
+  /* The photo grid answers the Card size slider. All three of Yupoo's view
+      classes normalise onto it, or a server-set stale one would stick. */
   [data-ygx-on] .showalbum__parent {
     display: grid !important;
     grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
@@ -1980,7 +2369,7 @@
   }
 
   /* Photo tiles take the .ygx-card treatment. border-box is load-bearing:
-      Yupoo sizes them with calc(), so a content-box border wraps the row. */
+        Yupoo sizes them with calc(), so a content-box border wraps the row. */
   [data-ygx-on] .showalbum__children.image__main {
     box-sizing: border-box;
     background: var(--ygx-bar);
@@ -2005,7 +2394,7 @@
     border-color: var(--ygx-bar-acc) !important;
   }
   /* Upload filenames, meaningless to a shopper. Yupoo already hides them in
-      Thumbnail view; this extends that to Detail and Big. */
+        Thumbnail view; this extends that to Detail and Big. */
   [data-ygx-on] .image__decwrap {
     display: none !important;
   }
@@ -2022,7 +2411,7 @@
     --ygx-text: #e9ecf3;
     --ygx-muted: #97a0b2;
     /* The accent as text sits on a wash; as a surface it carries text. They
-        diverge in light, so the badge does not read the text green. */
+          diverge in light, so the badge does not read the text green. */
     --ygx-accent: #3fbb85;
     --ygx-accent-bg: #3fbb85;
     --ygx-on-accent: #06120c;
@@ -2039,7 +2428,7 @@
       -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
       "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
     /* Keep the whole grid below Yupoo's own overlays (category dropdown,
-        lightbox, modals) rather than competing with them. */
+          lightbox, modals) rather than competing with them. */
     position: relative;
     z-index: 0;
     isolation: isolate;
@@ -2066,7 +2455,7 @@
     border-radius: 14px;
     overflow: hidden;
     /* Contains the price pill / count badge z-index inside the card, so they
-        can't paint over page chrome. */
+          can't paint over page chrome. */
     isolation: isolate;
     transition:
       transform 0.22s cubic-bezier(0.2, 0.7, 0.3, 1),
@@ -2181,7 +2570,7 @@
   }
 
   /* Fixed quarter-width slots: at width:100% a 1- or 2-photo album stretched
-      them full width and they read as a second giant image under the cover. */
+        them full width and they read as a second giant image under the cover. */
   .ygx-strip {
     display: flex;
     gap: 4px;
@@ -2199,6 +2588,261 @@
   }
   .ygx-card:hover .ygx-thumb {
     opacity: 1;
+  }
+
+  /* ---- Favorites ------------------------------------------------------- */
+
+  /* Host-page armour, as for the panel's buttons: this one sits inside a card
+        on Yupoo's page, so its geometry is pinned across every state too. */
+  .ygx-root .ygx-fav,
+  .ygx-root .ygx-fav:hover,
+  .ygx-root .ygx-fav:focus,
+  .ygx-root .ygx-fav:active,
+  .ygx-root .ygx-fav:focus-visible {
+    all: unset;
+    box-sizing: border-box;
+    position: absolute;
+    right: 8px;
+    top: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    color: var(--ygx-badge-text);
+    background: var(--ygx-badge);
+    /* Over the scrim and the count badge, which sit at 3. */
+    z-index: 4;
+    opacity: 0.72;
+    transition:
+      opacity 0.18s,
+      color 0.18s,
+      transform 0.18s;
+  }
+  .ygx-fav svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+  }
+  .ygx-card:hover .ygx-fav,
+  .ygx-root .ygx-fav:focus-visible {
+    opacity: 1;
+  }
+  .ygx-root .ygx-fav:hover {
+    opacity: 1;
+    color: var(--ygx-accent);
+    transform: scale(1.08);
+  }
+  /* Saved is a state, not a hover affordance: full strength at all times. */
+  .ygx-root .ygx-fav.is-on {
+    opacity: 1;
+    color: var(--ygx-accent);
+  }
+  .ygx-fav.is-on svg {
+    fill: currentColor;
+  }
+  .ygx-root .ygx-fav:focus-visible {
+    outline: 2px solid var(--ygx-accent);
+    outline-offset: 2px;
+  }
+
+  .ygx-shop {
+    font-size: 11px;
+    color: var(--ygx-accent);
+    background: var(--ygx-accent-wash);
+    border: 1px solid var(--ygx-line);
+    border-radius: 6px;
+    padding: 2px 6px;
+    margin-left: auto;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* One layer below the panel, so the design, theme and Card size controls stay
+        reachable and the list re-renders under them while it is open. */
+  .ygx-fav-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 2147482900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px;
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
+  }
+  .ygx-fav-overlay * {
+    box-sizing: border-box;
+  }
+  .ygx-fav-backdrop {
+    position: absolute;
+    inset: 0;
+    background: var(--ygx-fav-backdrop);
+  }
+  .ygx-fav-sheet {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: min(1180px, 100%);
+    max-height: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--ygx-bar);
+    border: 1px solid var(--ygx-panel-line);
+    box-shadow: 0 24px 60px var(--ygx-panel-shadow);
+  }
+  .ygx-fav-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex: 0 0 auto;
+    padding: 12px 13px;
+    border-bottom: 1px solid var(--ygx-panel-head-line);
+    color: var(--ygx-bar-text);
+  }
+  .ygx-fav-head-icon svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+    color: var(--ygx-bar-acc);
+    fill: currentColor;
+  }
+  .ygx-fav-head-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .ygx-fav-sub {
+    font-size: 11.5px;
+    color: var(--ygx-bar-sub);
+  }
+  /* The head's only auto margin, so the close button holds its place whether
+        or not the shop filter is showing. */
+  .ygx-fav-head-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .ygx-fav-shop-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  /* Drawn on the wrapper so it takes a token: appearance:none below loses the
+      browser's arrow, and a background-image cannot take currentColor. */
+  .ygx-fav-shop-wrap::after {
+    content: "";
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    border-right: 1.5px solid var(--ygx-bar-dim);
+    border-bottom: 1.5px solid var(--ygx-bar-dim);
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+  }
+  /* Host-page armour, and the panel design button's exact shape: this is the
+      same kind of control and reads as foreign in browser trim. */
+  .ygx-fav-overlay .ygx-fav-shop,
+  .ygx-fav-overlay .ygx-fav-shop:hover,
+  .ygx-fav-overlay .ygx-fav-shop:focus,
+  .ygx-fav-overlay .ygx-fav-shop:active {
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    appearance: none !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+    min-width: 0 !important;
+    max-width: 190px !important;
+    height: auto !important;
+    padding: 7px 26px 7px 10px !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    outline: 0 !important;
+    box-shadow: none !important;
+    font-family: inherit !important;
+    font-size: 11.5px !important;
+    font-weight: 600 !important;
+    line-height: 1.4 !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+    text-indent: 0 !important;
+    cursor: pointer;
+    color: var(--ygx-bar-item) !important;
+    background: var(--ygx-panel-btn) !important;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+  .ygx-fav-overlay .ygx-fav-shop:hover {
+    color: var(--ygx-bar-strong) !important;
+    background: var(--ygx-panel-btn-hover) !important;
+  }
+  /* The popup list is the one part the browser still draws, and both engines
+      honour these on it. */
+  .ygx-fav-overlay .ygx-fav-shop option {
+    color: var(--ygx-bar-text);
+    background: var(--ygx-bar);
+  }
+  .ygx-fav-overlay .ygx-fav-close,
+  .ygx-fav-overlay .ygx-fav-close:hover,
+  .ygx-fav-overlay .ygx-fav-close:focus,
+  .ygx-fav-overlay .ygx-fav-close:active {
+    all: unset;
+    box-sizing: border-box;
+    cursor: pointer;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    font-size: 17px;
+    line-height: 1;
+    color: var(--ygx-bar-dim);
+  }
+  .ygx-fav-overlay .ygx-fav-close:hover {
+    background: var(--ygx-panel-icon-hover);
+    color: var(--ygx-bar-strong);
+  }
+  /* The one scrolling box. .ygx-root's own page padding would double up on the
+        sheet's, so it is re-set rather than inherited. */
+  .ygx-fav-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 14px;
+    background: var(--ygx-page);
+  }
+
+  .ygx-fav-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    padding: 56px 20px 64px;
+    color: var(--ygx-muted);
+  }
+  .ygx-fav-empty-icon svg {
+    width: 34px;
+    height: 34px;
+    display: block;
+    color: var(--ygx-line-hi);
+  }
+  .ygx-fav-empty-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ygx-text);
+  }
+  .ygx-fav-empty-note {
+    font-size: 12.5px;
+    line-height: 1.6;
+    max-width: 44ch;
   }
 
   /* ---- Empty album: in the media area, so Dense and Masonry keep it ----- */
@@ -2362,8 +3006,7 @@
 
   /* ---- 4. Masonry ------------------------------------------------------ */
   /* column-width is the multi-column form of minmax(var(--ygx-min), 1fr), so
-      Masonry answers to the density slider exactly like the grid designs. Fixed
-      column-count breakpoints used to override the slider below 1500px. */
+      Masonry answers the density slider. Fixed column-count used to beat it. */
   .ygx-grid[data-design="masonry"] {
     display: block;
     column-width: var(--ygx-min);
@@ -2519,7 +3162,7 @@
   }
 
   /* Host-page armour: "all: unset" resets only the base state, so a Yupoo
-      button:hover rule still shifts our geometry. Pinned across every state. */
+        button:hover rule still shifts our geometry. Pinned across every state. */
   .ygx-panel button,
   .ygx-panel button:hover,
   .ygx-panel button:focus,
@@ -2552,7 +3195,9 @@
     font-weight: 600 !important;
   }
   .ygx-panel .ygx-toggle,
-  .ygx-panel .ygx-toggle:hover {
+  .ygx-panel .ygx-toggle:hover,
+  .ygx-panel .ygx-fav-btn,
+  .ygx-panel .ygx-fav-btn:hover {
     padding: 7px !important;
     font-weight: 600 !important;
   }
@@ -2689,16 +3334,13 @@
     border-radius: 5px;
     padding: 1px 5px;
   }
-  /* Track and thumb are drawn here because accent-color only reaches the fill:
-      the track stays Chromium's white slab, which is loud in a dark panel.
-      --ygx-fill is the value as a percentage, set on input. */
+  /* Drawn here because accent-color only reaches the fill, leaving Chromium's
+      white track. --ygx-fill is the value as a percentage, set on input. */
   .ygx-range {
     flex: 1;
   }
-  /* Host-page armour, as for the panel's buttons. Yupoo styles
-      input:not([type=checkbox]) at (0,1,1), which outranks a single class, so
-      without this the control keeps a white background, .6em of padding and a
-      grey border that turns green on hover. Checkboxes are exempt there. */
+  /* Host-page armour. Yupoo styles input:not([type=checkbox]) at (0,1,1),
+      which outranks a single class, so every state has to be pinned. */
   .ygx-panel .ygx-range,
   .ygx-panel .ygx-range:hover,
   .ygx-panel .ygx-range:focus {
@@ -2751,6 +3393,51 @@
     border-radius: 50%;
     background: var(--ygx-bar-acc);
   }
+  /* Not dimmed by .is-disabled: the list is still there when the original
+        layout is restored, and the button is how you get back to it. */
+  .ygx-fav-btn {
+    all: unset;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 7px;
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: var(--ygx-panel-btn);
+    color: var(--ygx-bar-item);
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+  .ygx-fav-btn:hover {
+    background: var(--ygx-panel-btn-hover);
+    color: var(--ygx-bar-strong);
+  }
+  .ygx-fav-btn-icon svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+    color: var(--ygx-bar-acc);
+  }
+  .ygx-fav-btn-count {
+    color: var(--ygx-bar-dim);
+  }
+  .ygx-fav-btn.is-active {
+    background: var(--ygx-bar-acc);
+    color: var(--ygx-bar-on);
+  }
+  .ygx-fav-btn.is-active .ygx-fav-btn-icon svg {
+    color: var(--ygx-bar-on);
+    fill: currentColor;
+  }
+  .ygx-fav-btn.is-active .ygx-fav-btn-count {
+    color: var(--ygx-bar-on);
+    opacity: 0.7;
+  }
+
   .ygx-toggle {
     all: unset;
     cursor: pointer;
@@ -2773,7 +3460,7 @@
     border-color: transparent;
   }
   /* Yupoo styles anchors green and underlined, so the credit link needs the
-      same across-every-state armour the panel's buttons have. */
+        same across-every-state armour the panel's buttons have. */
   .ygx-credit {
     margin-top: -2px;
     text-align: center;
@@ -2800,11 +3487,10 @@
   /* ---- Light theme (default): two token blocks and five exceptions ------ */
 
   /* Surfaces only. Scrim overlays keep white-on-gradient in both themes,
-      because that text sits on the photograph rather than on the card. */
+        because that text sits on the photograph rather than on the card. */
 
-  /* Flipping these re-themes the whole chrome. What is left below is only what
-      a token cannot express: a baked-in PNG, or a pre-inverted background image.
-      Qualified with :root so it outranks dark on specificity, not source order. */
+  /* Flipping these re-themes the chrome; below is only what a token cannot
+      express. Qualified with :root so it outranks dark on specificity. */
   :root[data-ygx-theme="light"] {
     --ygx-page: #f6f7f9;
     --ygx-bar: #ffffff;
@@ -2836,6 +3522,7 @@
     --ygx-panel-note: #98a2b3;
     --ygx-panel-off: #98a2b3;
     --ygx-panel-shadow: rgba(16, 24, 40, 0.18);
+    --ygx-fav-backdrop: rgba(16, 24, 40, 0.42);
   }
   /* A white logo on a white bar, so it has to flip here and only here. */
   [data-ygx-theme="light"][data-ygx-on] .header__logo img {
@@ -2867,7 +3554,7 @@
   }
 
   /* The sidebar toggle's icon is a background image, so its colours are
-      pre-inverted in the dark rules and cannot be read from a token. */
+        pre-inverted in the dark rules and cannot be read from a token. */
   [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-hide-sidebar,
   [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-show-sidebar {
     filter: none;
@@ -2881,7 +3568,7 @@
   }
 
   /* The only panel colour that is not a token: its dim is a step darker than
-      --ygx-bar-dim, which the rest of the light chrome uses. */
+        --ygx-bar-dim, which the rest of the light chrome uses. */
   [data-ygx-theme="light"] .ygx-toggle {
     color: #475467;
   }
@@ -2962,7 +3649,9 @@
         if (
           t &&
           t.closest &&
-          (t.closest(".ygx-root") || t.closest(".ygx-panel"))
+          (t.closest(".ygx-root") ||
+            t.closest(".ygx-panel") ||
+            t.closest(".ygx-fav-overlay"))
         )
           continue;
         if (m.addedNodes.length || m.removedNodes.length) {
@@ -2986,13 +3675,23 @@
     // any width change or the More toggle keeps its boot-time visibility.
     window.addEventListener("resize", debounce(syncSubcats, 150, 600));
 
+    // Capture, so Yupoo's own key handling cannot swallow it first.
+    document.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key === "Escape" && state.favsOpen) setFavsOpen(false);
+      },
+      true,
+    );
+
     let lastUrl = location.href;
     setInterval(() => {
       if (location.href === lastUrl) return;
       lastUrl = location.href;
       // Torn down now rather than after the settle delay, so the old page's
-      // cards never sit over the new one.
+      // cards never sit over the new one. The overlay goes with it.
       teardown();
+      if (state.favsOpen) setFavsOpen(false);
       lastSignature = "";
       resetEndless();
       setTimeout(() => {
