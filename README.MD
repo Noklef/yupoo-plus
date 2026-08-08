@@ -1,5 +1,5 @@
 # Yupoo Plus
-![Screenshot](.\media\CAT_ALL.png)
+![Screenshot](/media/CAT_ALL.png)
 
 I never really liked how annoying Yupoo looked with the small images, so I made a userscript to clean it up.
 
