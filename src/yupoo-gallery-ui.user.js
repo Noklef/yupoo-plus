@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Yupoo Plus
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.11.7
+// @version      2.11.8
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control.
 // @author       Noklef
 // @license      MIT
@@ -1151,74 +1151,82 @@
   /* ---- 5. Styles ------------------------------------------------------- */
 
   const CSS = `
-  [data-ygx-hidden] { display: none !important; }
+  [data-ygx-hidden] {
+    display: none !important;
+  }
 
   /* Yupoo caps the album area at a fixed width. */
   [data-ygx-widen] .showindex__gallerycardwrap,
-  [data-ygx-widen] .show-layout-category__catewrap,
-  [data-ygx-widen] .categories__box,
-  [data-ygx-widen] .categories__box.clearfix,
-  /* The album page's two capped containers. NOT .showalbum__children, which is
-     each photo tile: Yupoo sizes those calc((100% - 16px) / 2), so widening
-     them collapsed the 2-up grid and ate the gutters. */
-  [data-ygx-widen] .showalbum__imagecardwrap,
-  [data-ygx-widen] .showalbumheader__main,
-  [data-ygx-widen] .broadcastbar__wrap,
-  [data-ygx-widen] .pagination__main {
+    [data-ygx-widen] .show-layout-category__catewrap,
+    [data-ygx-widen] .categories__box,
+    [data-ygx-widen] .categories__box.clearfix,
+    /* The album page's two capped containers. NOT .showalbum__children, which is
+      each photo tile: Yupoo sizes those calc((100% - 16px) / 2), so widening
+      them collapsed the 2-up grid and ate the gutters. */
+    [data-ygx-widen] .showalbum__imagecardwrap,
+    [data-ygx-widen] .showalbumheader__main,
+    [data-ygx-widen] .broadcastbar__wrap,
+    [data-ygx-widen] .pagination__main {
     max-width: none !important;
     width: auto !important;
     margin-left: 0 !important;
     margin-right: 0 !important;
   }
-  [data-ygx-widen] .show-layout-category__catetitle { padding-left: 24px !important; }
+  [data-ygx-widen] .show-layout-category__catetitle {
+    padding-left: 24px !important;
+  }
 
   /* ---- Page chrome: header stack, broadcast bar, paginator, footer ---- */
 
   /* On :root, not .ygx-root: the chrome sits outside the grid and cannot
-     inherit from it. Every chrome colour is a token, so the light theme is a
-     re-declaration of this block plus the image-based exceptions. */
+      inherit from it. Every chrome colour is a token, so the light theme is a
+      re-declaration of this block plus the image-based exceptions. */
   :root {
-    --ygx-page:     #0f1116;
-    --ygx-bar:      #191c24;
-    --ygx-bar-alt:  #14171d;
+    --ygx-page: #0f1116;
+    --ygx-bar: #191c24;
+    --ygx-bar-alt: #14171d;
     --ygx-bar-line: #2a2f3b;
     --ygx-bar-text: #e9ecf3;
-    --ygx-bar-dim:  #97a0b2;
-    --ygx-bar-acc:  #3fbb85;
-    --ygx-bar-on:   #06120c;
-    --ygx-drop:     rgba(0,0,0,.5);
+    --ygx-bar-dim: #97a0b2;
+    --ygx-bar-acc: #3fbb85;
+    --ygx-bar-on: #06120c;
+    --ygx-drop: rgba(0, 0, 0, 0.5);
     /* Sidebar and sub-category row */
-    --ygx-bar-strong:     #ffffff;
-    --ygx-bar-active:     #e9ecf3;
-    --ygx-bar-head:       #dfe4ee;
-    --ygx-bar-item:       #b9c1d0;
-    --ygx-bar-link:       #c3cad8;
-    --ygx-bar-sub:        #8e97a8;
-    --ygx-bar-hover:      #232833;
+    --ygx-bar-strong: #ffffff;
+    --ygx-bar-active: #e9ecf3;
+    --ygx-bar-head: #dfe4ee;
+    --ygx-bar-item: #b9c1d0;
+    --ygx-bar-link: #c3cad8;
+    --ygx-bar-sub: #8e97a8;
+    --ygx-bar-hover: #232833;
     --ygx-bar-hover-line: #3a4152;
-    --ygx-bar-thumb:      #39404f;
-    --ygx-bar-off:        #5b6474;
+    --ygx-bar-thumb: #39404f;
+    --ygx-bar-off: #5b6474;
     /* The accent as text is a darker green than the accent as a surface once
-       the theme flips, so the two are separate tokens. */
-    --ygx-bar-acc-text:   #3fbb85;
-    --ygx-bar-acc-wash:   rgba(63,187,133,.14);
+        the theme flips, so the two are separate tokens. */
+    --ygx-bar-acc-text: #3fbb85;
+    --ygx-bar-acc-wash: rgba(63, 187, 133, 0.14);
     /* Control panel */
-    --ygx-panel-bg:         rgba(20,23,30,.96);
-    --ygx-panel-line:       #2c313d;
-    --ygx-panel-head-line:  #262b36;
-    --ygx-panel-btn:        #232833;
-    --ygx-panel-btn-hover:  #2b313e;
+    --ygx-panel-bg: rgba(20, 23, 30, 0.96);
+    --ygx-panel-line: #2c313d;
+    --ygx-panel-head-line: #262b36;
+    --ygx-panel-btn: #232833;
+    --ygx-panel-btn-hover: #2b313e;
     --ygx-panel-icon-hover: #262b36;
-    --ygx-panel-note:       #6b7488;
-    --ygx-panel-off:        #5c6577;
-    --ygx-panel-shadow:     rgba(0,0,0,.55);
+    --ygx-panel-note: #6b7488;
+    --ygx-panel-off: #5c6577;
+    --ygx-panel-shadow: rgba(0, 0, 0, 0.55);
   }
 
-  html[data-ygx-on] { background: var(--ygx-page) !important; }
-  html[data-ygx-on] body { background: transparent !important; }
+  html[data-ygx-on] {
+    background: var(--ygx-page) !important;
+  }
+  html[data-ygx-on] body {
+    background: transparent !important;
+  }
 
   /* Yupoo's own site bar, above the shop's. Its logo is a white PNG, so light
-     mode inverts the logo rather than darkening the bar to keep it legible. */
+      mode inverts the logo rather than darkening the bar to keep it legible. */
   [data-ygx-on] .header__wrap {
     background: var(--ygx-bar) !important;
     border-bottom: 1px solid var(--ygx-bar-line) !important;
@@ -1228,38 +1236,58 @@
   [data-ygx-on] .header__separator,
   [data-ygx-on] .header__wrap a,
   [data-ygx-on] .header__wrap i,
-  [data-ygx-on] .language__currentlang { color: var(--ygx-bar-dim) !important; }
-  [data-ygx-on] .header__wrap a:hover { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .language__currentlang {
+    color: var(--ygx-bar-dim) !important;
+  }
+  [data-ygx-on] .header__wrap a:hover {
+    color: var(--ygx-bar-text) !important;
+  }
   /* Language menu, which opens over the bar. */
   [data-ygx-on] .header__wrap .language__link ul {
     background: var(--ygx-bar) !important;
     border: 1px solid var(--ygx-bar-line) !important;
   }
-  [data-ygx-on] .header__wrap .language__link ul a { color: var(--ygx-bar-dim) !important; }
-  [data-ygx-on] .header__wrap .language__link ul a:hover { color: var(--ygx-bar-acc) !important; }
+  [data-ygx-on] .header__wrap .language__link ul a {
+    color: var(--ygx-bar-dim) !important;
+  }
+  [data-ygx-on] .header__wrap .language__link ul a:hover {
+    color: var(--ygx-bar-acc) !important;
+  }
 
   /* Shop header: nickname, search, menu tabs. */
   [data-ygx-on] .showheader__headerWrap {
     background: var(--ygx-bar-alt) !important;
     border-bottom: 1px solid var(--ygx-bar-line) !important;
   }
-  [data-ygx-on] .showheader__nickname { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .showheader__nickname {
+    color: var(--ygx-bar-text) !important;
+  }
   [data-ygx-on] .showheader__menuslink,
   [data-ygx-on] .showheader__custommenu,
-  [data-ygx-on] .showheader__qrcodehandle { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .showheader__qrcodehandle {
+    color: var(--ygx-bar-dim) !important;
+  }
   [data-ygx-on] .showheader__menuslink:hover,
-  [data-ygx-on] .showheader__custommenu:hover { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .showheader__custommenu:hover {
+    color: var(--ygx-bar-text) !important;
+  }
   /* Yupoo marks the active tab with a floating green div, not a class on it. */
-  [data-ygx-on] .showheader__tabflag { background: var(--ygx-bar-acc) !important; }
+  [data-ygx-on] .showheader__tabflag {
+    background: var(--ygx-bar-acc) !important;
+  }
 
   /* The wrap owns the pill border and the button is its right cap, so only
-     colours change here; the geometry is left exactly as Yupoo has it. */
+      colours change here; the geometry is left exactly as Yupoo has it. */
   [data-ygx-on] .search__inputWrap {
     background: var(--ygx-bar) !important;
     border-color: var(--ygx-bar-line) !important;
   }
-  [data-ygx-on] .search__input { color: var(--ygx-bar-text) !important; }
-  [data-ygx-on] .search__input::placeholder { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .search__input {
+    color: var(--ygx-bar-text) !important;
+  }
+  [data-ygx-on] .search__input::placeholder {
+    color: var(--ygx-bar-dim) !important;
+  }
   [data-ygx-on] .search__searchBtn {
     background: var(--ygx-bar-acc) !important;
     border-color: var(--ygx-bar-acc) !important;
@@ -1270,12 +1298,14 @@
     background: var(--ygx-bar-alt) !important;
     border-bottom: 1px solid var(--ygx-bar-line) !important;
   }
-  [data-ygx-on] .broadcastbar__wrap pre { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .broadcastbar__wrap pre {
+    color: var(--ygx-bar-dim) !important;
+  }
 
   /* All-categories dropdown. Yupoo ships two templates of it and which one a
-     shop gets is server-side, so both are themed: .showheader__category_new
-     (fixed, flex, macy columns) and .showheader__category (absolute, two
-     floated 50% columns). Both come white with a light-grey frame. */
+      shop gets is server-side, so both are themed: .showheader__category_new
+      (fixed, flex, macy columns) and .showheader__category (absolute, two
+      floated 50% columns). Both come white with a light-grey frame. */
   [data-ygx-on] .showheader__category_new,
   [data-ygx-on] .showheader__category {
     background: var(--ygx-bar) !important;
@@ -1284,7 +1314,7 @@
     box-shadow: 0 12px 30px var(--ygx-drop) !important;
   }
   /* Swept, not named: the tree's text is #494949, so anything missed once the
-     panel goes dark would be dark-on-dark. */
+      panel goes dark would be dark-on-dark. */
   [data-ygx-on] .showheader__category_new,
   [data-ygx-on] .showheader__category_new a,
   [data-ygx-on] .showheader__category_new p,
@@ -1293,38 +1323,52 @@
   [data-ygx-on] .showheader__category_new div,
   [data-ygx-on] .showheader__category,
   [data-ygx-on] .showheader__category a,
-  [data-ygx-on] .showheader__category li { color: var(--ygx-bar-item) !important; }
-  [data-ygx-on] .showheader__link:hover { color: var(--ygx-bar-acc) !important; }
+  [data-ygx-on] .showheader__category li {
+    color: var(--ygx-bar-item) !important;
+  }
+  [data-ygx-on] .showheader__link:hover {
+    color: var(--ygx-bar-acc) !important;
+  }
 
   /* The old template's centre divider, a ::before drawn at #d3d3d3. */
-  [data-ygx-on] .showheader__category:before { border-left-color: var(--ygx-bar-line) !important; }
+  [data-ygx-on] .showheader__category:before {
+    border-left-color: var(--ygx-bar-line) !important;
+  }
   [data-ygx-on] .showheader__category li {
     border-radius: 7px;
-    transition: background .15s, color .15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   /* Yupoo fills the row #49bc85 with white text, which survives the dark
-     theme intact. Retinted to the sidebar's hover, not its selected state:
-     these rows are a menu and none of them is ever current. */
+      theme intact. Retinted to the sidebar's hover, not its selected state:
+      these rows are a menu and none of them is ever current. */
   [data-ygx-on] .showheader__category li:hover {
     background: var(--ygx-bar-hover) !important;
     color: var(--ygx-bar-active) !important;
   }
   /* The list scrolls once the menu is open and the shop has enough
-     categories, so its scrollbar needs the sidebar's treatment. */
+      categories, so its scrollbar needs the sidebar's treatment. */
   [data-ygx-on] .showheader__categoryList {
     scrollbar-width: thin;
     scrollbar-color: var(--ygx-bar-thumb) transparent;
   }
-  [data-ygx-on] .showheader__categoryList::-webkit-scrollbar { width: 8px; }
-  [data-ygx-on] .showheader__categoryList::-webkit-scrollbar-thumb {
-    background: var(--ygx-bar-thumb); border-radius: 99px; border: 2px solid var(--ygx-bar);
+  [data-ygx-on] .showheader__categoryList::-webkit-scrollbar {
+    width: 8px;
   }
-  [data-ygx-on] .showheader__categoryList::-webkit-scrollbar-track { background: transparent; }
+  [data-ygx-on] .showheader__categoryList::-webkit-scrollbar-thumb {
+    background: var(--ygx-bar-thumb);
+    border-radius: 99px;
+    border: 2px solid var(--ygx-bar);
+  }
+  [data-ygx-on] .showheader__categoryList::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
   /* Every shop-authored page (contact, "how to order") shares .htmlwrap__main.
-     Yupoo's half-transparent tint and dashed green border wash out when dark.
-     The album description carries the same class, so it is excluded here: the
-     box treatment plus Yupoo's min-height:63px turned one line into a slab. */
+      Yupoo's half-transparent tint and dashed green border wash out when dark.
+      The album description carries the same class, so it is excluded here: the
+      box treatment plus Yupoo's min-height:63px turned one line into a slab. */
   [data-ygx-on] .htmlwrap__main:not(.showalbumheader__gallerysubtitle) {
     background: var(--ygx-bar) !important;
     border: 1px dashed var(--ygx-bar-line) !important;
@@ -1337,17 +1381,23 @@
   [data-ygx-on] .htmlwrap__main span,
   [data-ygx-on] .htmlwrap__main div,
   [data-ygx-on] .htmlwrap__main td,
-  [data-ygx-on] .htmlwrap__main pre { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .htmlwrap__main pre {
+    color: var(--ygx-bar-dim) !important;
+  }
   [data-ygx-on] .htmlwrap__main h1,
   [data-ygx-on] .htmlwrap__main h2,
   [data-ygx-on] .htmlwrap__main h3,
   [data-ygx-on] .htmlwrap__main h4,
   [data-ygx-on] .htmlwrap__main strong,
-  [data-ygx-on] .htmlwrap__main b { color: var(--ygx-bar-text) !important; }
-  [data-ygx-on] .htmlwrap__main a { color: var(--ygx-bar-acc) !important; }
+  [data-ygx-on] .htmlwrap__main b {
+    color: var(--ygx-bar-text) !important;
+  }
+  [data-ygx-on] .htmlwrap__main a {
+    color: var(--ygx-bar-acc) !important;
+  }
 
   /* .pagination__button is the shared base for prev/next, numbers and confirm;
-     .pagination__active is the current page. Arrows are font icons, so: colour. */
+      .pagination__active is the current page. Arrows are font icons, so: colour. */
   [data-ygx-on] .pagination__button {
     background: var(--ygx-bar) !important;
     border-color: var(--ygx-bar-line) !important;
@@ -1370,7 +1420,9 @@
     color: var(--ygx-bar-off) !important;
   }
   [data-ygx-on] .pagination__jumpwrap,
-  [data-ygx-on] .pagination__jumpwrap span { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .pagination__jumpwrap span {
+    color: var(--ygx-bar-dim) !important;
+  }
   [data-ygx-on] .pagination__jumpwrap input {
     background: var(--ygx-bar) !important;
     border: 1px solid var(--ygx-bar-line) !important;
@@ -1383,8 +1435,12 @@
   }
   [data-ygx-on] .userfooter__copyright,
   [data-ygx-on] .userfooter__lang,
-  [data-ygx-on] .userfooter__lang * { color: var(--ygx-bar-dim) !important; }
-  [data-ygx-on] .userfooter__copyright a { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .userfooter__lang * {
+    color: var(--ygx-bar-dim) !important;
+  }
+  [data-ygx-on] .userfooter__copyright a {
+    color: var(--ygx-bar-text) !important;
+  }
 
   /* Modals Yupoo pops over the page; white panels otherwise. */
   [data-ygx-on] .search__loginModal,
@@ -1396,7 +1452,9 @@
   }
   [data-ygx-on] .search__loginModal p,
   [data-ygx-on] .passwordmodal__modal p,
-  [data-ygx-on] .alert__alert p { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .alert__alert p {
+    color: var(--ygx-bar-text) !important;
+  }
   [data-ygx-on] .search__loginModal .button {
     background: var(--ygx-bar-alt) !important;
     border-color: var(--ygx-bar-line) !important;
@@ -1404,11 +1462,13 @@
   }
 
   /* Yupoo's dark icons, flipped to read on a dark surface. The white site logo
-     is the reverse case, so it inverts in the light theme instead. */
+      is the reverse case, so it inverts in the light theme instead. */
   [data-ygx-on] .search__searchIcon,
   [data-ygx-on] .showheader__category_collapse,
   [data-ygx-on] .socialshare__shareIcon img,
-  [data-ygx-on] .categories__box-right-pagination-button { filter: invert(1); }
+  [data-ygx-on] .categories__box-right-pagination-button {
+    filter: invert(1);
+  }
 
   /* ---- /categories sidebar (tree shape is in CLAUDE.md) ---------------- */
   [data-ygx-on] .categories__box-left {
@@ -1423,41 +1483,49 @@
     scrollbar-width: thin;
     scrollbar-color: var(--ygx-bar-thumb) transparent;
     /* Reserve the track: without it a 1px hover height change toggles the
-       scrollbar and reflows the column, which reads as every row jittering. */
+        scrollbar and reflows the column, which reads as every row jittering. */
     scrollbar-gutter: stable;
   }
-  [data-ygx-on] .categories__box-left::-webkit-scrollbar { width: 8px; }
-  [data-ygx-on] .categories__box-left::-webkit-scrollbar-thumb {
-    background: var(--ygx-bar-thumb); border-radius: 99px; border: 2px solid var(--ygx-bar);
+  [data-ygx-on] .categories__box-left::-webkit-scrollbar {
+    width: 8px;
   }
-  [data-ygx-on] .categories__box-left::-webkit-scrollbar-track { background: transparent; }
+  [data-ygx-on] .categories__box-left::-webkit-scrollbar-thumb {
+    background: var(--ygx-bar-thumb);
+    border-radius: 99px;
+    border: 2px solid var(--ygx-bar);
+  }
+  [data-ygx-on] .categories__box-left::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
   [data-ygx-on] .categories__box-left .yupoo-collapse-item {
     background: transparent !important;
     border: 0 !important;
   }
   /* The header owns the row padding, so it owns the toggle hit area. Making the
-     anchor display:block hands the row to the link, leaving nothing to expand. */
+      anchor display:block hands the row to the link, leaving nothing to expand. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-header,
   [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover {
     box-sizing: border-box;
     background: transparent !important;
     /* Geometry is pinned identically across both states — only the colour
-       differs — so nothing Yupoo's own :hover rules add can shift the row. */
+        differs — so nothing Yupoo's own :hover rules add can shift the row. */
     border: 0 !important;
     outline: 0 !important;
     margin: 0 !important;
     padding: 0 10px !important;
     /* Yupoo's line-height:48px strut beats the anchor's padding, leaving a 48px
-       row with the label sitting high. Same defect the content items had. */
+        row with the label sitting high. Same defect the content items had. */
     line-height: 1.4 !important;
     height: auto !important;
     min-height: 0 !important;
     border-radius: 8px;
     cursor: pointer;
-    transition: background .15s;
+    transition: background 0.15s;
   }
-  [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover { background: var(--ygx-bar-hover) !important; }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header:hover {
+    background: var(--ygx-bar-hover) !important;
+  }
   [data-ygx-on] .categories__box-left .yupoo-collapse-header > a {
     display: inline-block;
     max-width: 100%;
@@ -1469,21 +1537,33 @@
     text-decoration: none !important;
     vertical-align: middle;
     /* Pinned so a hover bolding from Yupoo's stylesheet can't change the
-       text's measured width and shove the ellipsis around. */
+        text's measured width and shove the ellipsis around. */
     font-weight: 600 !important;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  [data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover { color: var(--ygx-bar-strong) !important; }
+  [data-ygx-on] .categories__box-left .yupoo-collapse-header > a:hover {
+    color: var(--ygx-bar-strong) !important;
+  }
 
-  [data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header {
+  [data-ygx-on]
+    .categories__box-left
+    .yupoo-collapse-item-selected
+    > .yupoo-collapse-header {
     background: var(--ygx-bar-acc-wash) !important;
     box-shadow: inset 2px 0 0 var(--ygx-bar-acc);
   }
-  [data-ygx-on] .categories__box-left .yupoo-collapse-item-selected > .yupoo-collapse-header > a {
-    color: var(--ygx-bar-acc-text) !important; font-weight: 600 !important;
+  [data-ygx-on]
+    .categories__box-left
+    .yupoo-collapse-item-selected
+    > .yupoo-collapse-header
+    > a {
+    color: var(--ygx-bar-acc-text) !important;
+    font-weight: 600 !important;
   }
   /* Children hang off a guide rail rather than relying on indent alone, so the
-     nesting is legible at a glance instead of being inferred from padding. */
+      nesting is legible at a glance instead of being inferred from padding. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-box {
     margin: 2px 0 6px 17px !important;
     padding: 0 0 0 10px !important;
@@ -1492,7 +1572,8 @@
 
   [data-ygx-on] .categories__box-left .yupoo-collapse-content,
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-box {
-    background: transparent !important; border: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-item {
     display: block;
@@ -1501,41 +1582,56 @@
     border-radius: 7px;
     font-size: 12px !important;
     /* Pinned: without it the row inherits Yupoo's line-height, which doesn't
-       match the 6px padding and leaves the text sitting high in its box. */
+        match the 6px padding and leaves the text sitting high in its box. */
     line-height: 1.5 !important;
     min-height: 0 !important;
     font-weight: 400 !important;
     color: var(--ygx-bar-sub) !important;
     text-decoration: none !important;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    transition: background .15s, color .15s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-item:hover {
-    background: var(--ygx-bar-hover) !important; color: var(--ygx-bar-active) !important;
+    background: var(--ygx-bar-hover) !important;
+    color: var(--ygx-bar-active) !important;
   }
   /* The active child link carries .yupoo-collapse-content-item-selected. */
   [data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected,
-  [data-ygx-on] .categories__box-left .yupoo-collapse-content-item-selected:hover {
+  [data-ygx-on]
+    .categories__box-left
+    .yupoo-collapse-content-item-selected:hover {
     color: var(--ygx-bar-acc-text) !important;
     font-weight: 600 !important;
     background: var(--ygx-bar-acc-wash) !important;
     box-shadow: inset 2px 0 0 var(--ygx-bar-acc);
   }
   /* Parent of the open branch, so the trail to the current page reads. */
-  [data-ygx-on] .categories__box-left .yupoo-collapse-item-active > .yupoo-collapse-header > a {
+  [data-ygx-on]
+    .categories__box-left
+    .yupoo-collapse-item-active
+    > .yupoo-collapse-header
+    > a {
     color: var(--ygx-bar-active) !important;
   }
 
   /* The chevron is a ::after at right:16px width:12px, so it reaches 28px in;
-     20px left only 2px of clearance. .yupoo-collapse-item-single has none. */
-  [data-ygx-on] .categories__box-left .yupoo-collapse-item:not(.yupoo-collapse-item-single) > .yupoo-collapse-header > a {
+      20px left only 2px of clearance. .yupoo-collapse-item-single has none. */
+  [data-ygx-on]
+    .categories__box-left
+    .yupoo-collapse-item:not(.yupoo-collapse-item-single)
+    > .yupoo-collapse-header
+    > a {
     max-width: calc(100% - 28px);
   }
 
   /* ---- Sidebar collapse button ----------------------------------------- */
 
   /* An empty div positioned against .categories__box, so it lands over the first
-     row. Its icon is a background image, so these colours are pre-inverted. */
+      row. Its icon is a background image, so these colours are pre-inverted. */
   [data-ygx-on] .yupoo-categories-hide-sidebar,
   [data-ygx-on] .yupoo-categories-show-sidebar {
     width: 26px !important;
@@ -1546,19 +1642,28 @@
     border-radius: 7px !important;
     filter: invert(1);
     z-index: 2;
-    transition: background-color .15s, border-color .15s;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
   }
   [data-ygx-on] .yupoo-categories-hide-sidebar:hover,
   [data-ygx-on] .yupoo-categories-show-sidebar:hover {
-    background-color: #dcd7cc !important; border-color: #c5bead !important;
+    background-color: #dcd7cc !important;
+    border-color: #c5bead !important;
   }
   /* Pull it into the row's text column: the card reserves a 10px scrollbar
-     gutter, so left as Yupoo has it the button sits on top of the scrollbar. */
-  [data-ygx-on] .yupoo-categories-hide-sidebar { transform: translate(-24px, -1px); }
+      gutter, so left as Yupoo has it the button sits on top of the scrollbar. */
+  [data-ygx-on] .yupoo-categories-hide-sidebar {
+    transform: translate(-24px, -1px);
+  }
 
   /* The button sits over the first row, so that row alone reserves its width.
-     Declared after the chevron rule so it wins the 28px reservation. */
-  [data-ygx-on] .categories__box-left .yupoo-collapse-item:first-child > .yupoo-collapse-header > a {
+      Declared after the chevron rule so it wins the 28px reservation. */
+  [data-ygx-on]
+    .categories__box-left
+    .yupoo-collapse-item:first-child
+    > .yupoo-collapse-header
+    > a {
     max-width: calc(100% - 32px);
   }
 
@@ -1569,17 +1674,17 @@
     padding: 0 72px 0 24px !important;
     margin: 0 0 12px !important;
     /* Yupoo frames the row in #ececec. The pills carry their own borders, so
-       the strip needs no container of its own. */
+        the strip needs no container of its own. */
     border: 0 !important;
   }
   /* Yupoo pins every wrapper to 179px, so a short label reserves as much room as
-     the longest one. Let the pills hug their text instead. */
+      the longest one. Let the pills hug their text instead. */
   [data-ygx-on] .categories__box-right-category-item-trick-wrap {
     width: auto !important;
     margin: 0 !important;
   }
   /* Expanded only, Yupoo rules off each row with an #ececec ::after that runs
-     24px past the wrapper. Our pills hug their text, so it is a stray dash. */
+      24px past the wrapper. Our pills hug their text, so it is a stray dash. */
   [data-ygx-on] .categories__box-right-category-item-trick-wrap::after {
     display: none !important;
   }
@@ -1593,7 +1698,10 @@
     line-height: 1.44 !important;
     color: var(--ygx-bar-item) !important;
     text-decoration: none !important;
-    transition: background .15s, border-color .15s, color .15s;
+    transition:
+      background 0.15s,
+      border-color 0.15s,
+      color 0.15s;
   }
   [data-ygx-on] .categories__box-right-category-item:hover {
     background: var(--ygx-bar-hover);
@@ -1601,31 +1709,45 @@
     color: var(--ygx-bar-strong) !important;
   }
   [data-ygx-on] .categories__box-right-category-item.ygx-here {
-    background: var(--ygx-bar-acc); border-color: var(--ygx-bar-acc);
-    color: var(--ygx-bar-on) !important; font-weight: 600;
+    background: var(--ygx-bar-acc);
+    border-color: var(--ygx-bar-acc);
+    color: var(--ygx-bar-on) !important;
+    font-weight: 600;
   }
   /* Two pill rows of 30px plus one 8px gap, replacing Yupoo's 94px cut. */
-  [data-ygx-on] .categories__box-right-categories-wrap.is-fold .categories__box-right-categories {
+  [data-ygx-on]
+    .categories__box-right-categories-wrap.is-fold
+    .categories__box-right-categories {
     max-height: 68px !important;
   }
   [data-ygx-on] .categories__box-right-categories-toggle {
-    top: 6px !important; right: 24px !important;
-    font-size: 12px !important; color: var(--ygx-bar-dim) !important; cursor: pointer;
+    top: 6px !important;
+    right: 24px !important;
+    font-size: 12px !important;
+    color: var(--ygx-bar-dim) !important;
+    cursor: pointer;
   }
-  [data-ygx-on] .categories__box-right-categories-toggle:hover { color: var(--ygx-bar-acc-text) !important; }
+  [data-ygx-on] .categories__box-right-categories-toggle:hover {
+    color: var(--ygx-bar-acc-text) !important;
+  }
 
   /* Header row above the grid: total count + pagination */
   [data-ygx-on] .categories__box-right-total,
   [data-ygx-on] .categories__box-right-pagination-span {
-    color: var(--ygx-bar-sub) !important; font-size: 12.5px !important;
+    color: var(--ygx-bar-sub) !important;
+    font-size: 12.5px !important;
   }
-  [data-ygx-on] .categories__box-right-pagination a { color: var(--ygx-bar-link) !important; }
-  [data-ygx-on] .categories__box-right-pagination a:hover { color: var(--ygx-bar-acc-text) !important; }
+  [data-ygx-on] .categories__box-right-pagination a {
+    color: var(--ygx-bar-link) !important;
+  }
+  [data-ygx-on] .categories__box-right-pagination a:hover {
+    color: var(--ygx-bar-acc-text) !important;
+  }
 
   /* ---- Album detail page, /albums/<id> (shape in CLAUDE.md) ------------- */
 
   /* The header is one panel. flow-root rather than block because the cover is a
-     float no ancestor contains, and a panel it can hang out of looks broken. */
+      float no ancestor contains, and a panel it can hang out of looks broken. */
   [data-ygx-on] .showalbumheader__main {
     display: flow-root !important;
     background: var(--ygx-bar) !important;
@@ -1633,8 +1755,8 @@
     border-radius: 14px !important;
     padding: 14px 16px 16px !important;
     /* Top and bottom only. Yupoo centres this with margin 0 auto, so a
-       shorthand would left-align the panel whenever widen is off. The 20px
-       matches .showalbum__imagecardwrap's 1.3em top padding below it. */
+        shorthand would left-align the panel whenever widen is off. The 20px
+        matches .showalbum__imagecardwrap's 1.3em top padding below it. */
     margin-top: 20px !important;
     margin-bottom: 0 !important;
   }
@@ -1645,28 +1767,38 @@
     border-bottom: 1px solid var(--ygx-bar-line);
     font-size: 12px;
   }
-  [data-ygx-on] .yupoo-crumbs-span { color: var(--ygx-bar-sub) !important; }
-  [data-ygx-on] .yupoo-crumbs-span.is-link:hover { color: var(--ygx-bar-acc-text) !important; }
+  [data-ygx-on] .yupoo-crumbs-span {
+    color: var(--ygx-bar-sub) !important;
+  }
+  [data-ygx-on] .yupoo-crumbs-span.is-link:hover {
+    color: var(--ygx-bar-acc-text) !important;
+  }
 
   /* Yupoo's 1px #cfcfcf frame goes; overflow clips the cover, which is an
-     absolutely positioned .autocover. Nothing may paint on __space: it is only
-     a 136px sizing spacer, but it is position:relative and comes after the
-     image, so it paints over it and a background there blanks the cover. */
+      absolutely positioned .autocover. Nothing may paint on __space: it is only
+      a 136px sizing spacer, but it is position:relative and comes after the
+      image, so it paints over it and a background there blanks the cover. */
   [data-ygx-on] .showalbumheader__gallerycover {
     border: 0 !important;
     border-radius: 12px;
     overflow: hidden;
     background: var(--ygx-bar-alt);
   }
-  [data-ygx-on] .showalbumheader__space { border: 0 !important; }
+  [data-ygx-on] .showalbumheader__space {
+    border: 0 !important;
+  }
 
   /* The count sits in the h1 next to the title, separated by an <i> that draws
-     itself from currentColor, so dimming the h1 dims the rule too. */
-  [data-ygx-on] .showalbumheader__gallerydec h1 { color: var(--ygx-bar-dim) !important; }
-  [data-ygx-on] .showalbumheader__gallerytitle { color: var(--ygx-bar-text) !important; }
+      itself from currentColor, so dimming the h1 dims the rule too. */
+  [data-ygx-on] .showalbumheader__gallerydec h1 {
+    color: var(--ygx-bar-dim) !important;
+  }
+  [data-ygx-on] .showalbumheader__gallerytitle {
+    color: var(--ygx-bar-text) !important;
+  }
 
   /* A quiet rail instead of a box: the description is usually one or two lines,
-     and min-height reserved 63px for them. */
+      and min-height reserved 63px for them. */
   [data-ygx-on] .showalbumheader__gallerysubtitle {
     min-height: 0 !important;
     margin: 2px 0 12px !important;
@@ -1674,14 +1806,18 @@
     border-left: 2px solid var(--ygx-bar-line);
     color: var(--ygx-bar-dim) !important;
   }
-  [data-ygx-on] .showalbumheader__gallerysubtitle a { color: var(--ygx-bar-acc-text) !important; }
+  [data-ygx-on] .showalbumheader__gallerysubtitle a {
+    color: var(--ygx-bar-acc-text) !important;
+  }
 
   /* Batch copy / batch download / share. */
   [data-ygx-on] .showalbumheader__tabgroup .button {
     background: var(--ygx-bar-hover) !important;
     border: 1px solid var(--ygx-bar-line) !important;
     color: var(--ygx-bar-item) !important;
-    transition: border-color .15s, color .15s;
+    transition:
+      border-color 0.15s,
+      color 0.15s;
   }
   [data-ygx-on] .showalbumheader__tabgroup .button:hover {
     border-color: var(--ygx-bar-hover-line) !important;
@@ -1689,8 +1825,10 @@
   }
 
   /* Thumbnail / Detail / Big. Gone: the panel's Card size slider owns tile
-     width here, and these three set a competing one. */
-  [data-ygx-on] .showalbumheader__btn-group { display: none !important; }
+      width here, and these three set a competing one. */
+  [data-ygx-on] .showalbumheader__btn-group {
+    display: none !important;
+  }
 
   [data-ygx-on] .socialshare__shareModal {
     background: var(--ygx-bar) !important;
@@ -1698,47 +1836,75 @@
     color: var(--ygx-bar-text) !important;
   }
   [data-ygx-on] .socialshare__shareModal h4,
-  [data-ygx-on] .socialshare__shareModal h5 { color: var(--ygx-bar-text) !important; }
+  [data-ygx-on] .socialshare__shareModal h5 {
+    color: var(--ygx-bar-text) !important;
+  }
   /* "Other ways to share" is a #fff chip masking a gap in the rule behind it.
-     Invisible on Yupoo's white modal, a white slab on ours. */
+      Invisible on Yupoo's white modal, a white slab on ours. */
   [data-ygx-on] .socialshare__midPartLine span {
     background: var(--ygx-bar) !important;
     color: var(--ygx-bar-dim) !important;
   }
-  [data-ygx-on] .socialshare__midPartLine:before { background-color: var(--ygx-bar-line) !important; }
-  [data-ygx-on] .socialshare__shareIcon { border-color: var(--ygx-bar-line) !important; }
-  [data-ygx-on] .socialshare__shareIcon:hover { background: var(--ygx-bar-hover) !important; }
+  [data-ygx-on] .socialshare__midPartLine:before {
+    background-color: var(--ygx-bar-line) !important;
+  }
+  [data-ygx-on] .socialshare__shareIcon {
+    border-color: var(--ygx-bar-line) !important;
+  }
+  [data-ygx-on] .socialshare__shareIcon:hover {
+    background: var(--ygx-bar-hover) !important;
+  }
 
   /* ---- Photo viewer: /<photoId>, and the same markup as the lightbox ---- */
 
   /* Yupoo's greys predate the theme: #515151 surround, #424242 info column,
-     #49bc85 links. .viewer__main is the whole fixed viewer. */
+      #49bc85 links. .viewer__main is the whole fixed viewer. */
   [data-ygx-on] .viewer__main {
     background: var(--ygx-page) !important;
     color: var(--ygx-bar-text) !important;
   }
-  [data-ygx-on] .viewer__empty { background: var(--ygx-bar-alt) !important; }
+  [data-ygx-on] .viewer__empty {
+    background: var(--ygx-bar-alt) !important;
+  }
   [data-ygx-on] .viewer__oldwrap,
-  [data-ygx-on] .viewer__toggle_info { background: var(--ygx-bar) !important; }
-  [data-ygx-on] .viewer__oldwrap { border-left: 1px solid var(--ygx-bar-line) !important; }
+  [data-ygx-on] .viewer__toggle_info {
+    background: var(--ygx-bar) !important;
+  }
+  [data-ygx-on] .viewer__oldwrap {
+    border-left: 1px solid var(--ygx-bar-line) !important;
+  }
   /* The info column's scroll shadows are four gradients baked at #424242. */
   [data-ygx-on] .viewer__infowrap {
     background-image: none !important;
     scrollbar-width: thin;
     scrollbar-color: var(--ygx-bar-thumb) transparent;
   }
-  [data-ygx-on] .viewer__infowrap::-webkit-scrollbar { width: 8px; }
-  [data-ygx-on] .viewer__infowrap::-webkit-scrollbar-thumb {
-    background: var(--ygx-bar-thumb); border-radius: 99px; border: 2px solid var(--ygx-bar);
+  [data-ygx-on] .viewer__infowrap::-webkit-scrollbar {
+    width: 8px;
   }
-  [data-ygx-on] .viewer__infowrap::-webkit-scrollbar-track { background: transparent; }
-  [data-ygx-on] .viewer__title { color: var(--ygx-bar-strong) !important; }
-  [data-ygx-on] .viewer__info { color: var(--ygx-bar-item) !important; }
-  [data-ygx-on] .yupoo-viewer-label { color: var(--ygx-bar-dim) !important; }
+  [data-ygx-on] .viewer__infowrap::-webkit-scrollbar-thumb {
+    background: var(--ygx-bar-thumb);
+    border-radius: 99px;
+    border: 2px solid var(--ygx-bar);
+  }
+  [data-ygx-on] .viewer__infowrap::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  [data-ygx-on] .viewer__title {
+    color: var(--ygx-bar-strong) !important;
+  }
+  [data-ygx-on] .viewer__info {
+    color: var(--ygx-bar-item) !important;
+  }
+  [data-ygx-on] .yupoo-viewer-label {
+    color: var(--ygx-bar-dim) !important;
+  }
   [data-ygx-on] .viewer__oldwrap a,
-  [data-ygx-on] .viewer__picInfo .viewer__picName a { color: var(--ygx-bar-acc-text) !important; }
+  [data-ygx-on] .viewer__picInfo .viewer__picName a {
+    color: var(--ygx-bar-acc-text) !important;
+  }
   /* Yupoo clips the album and category names to one line with .text_overflow.
-     The column is 320px and shop titles are long, so here they wrap. */
+      The column is 320px and shop titles are long, so here they wrap. */
   [data-ygx-on] .viewer__infowrap .text_overflow {
     white-space: normal !important;
     overflow: visible !important;
@@ -1746,7 +1912,7 @@
     overflow-wrap: anywhere;
   }
   /* Wrapping only shows if the rows can grow. These are pinned to height 22px,
-     so a second line overflowed onto the label underneath. */
+      so a second line overflowed onto the label underneath. */
   [data-ygx-on] .viewer__infowrap .yupoo-viewer-label,
   [data-ygx-on] .viewer__infowrap .yupoo-viewer-item,
   [data-ygx-on] .viewer__infowrap .yupoo-viewer-cate-item {
@@ -1755,22 +1921,30 @@
   }
 
   /* The arrows and the close icon are white on Yupoo's grey, so they need a
-     surface of their own or the light theme loses them into the page. */
+      surface of their own or the light theme loses them into the page. */
   [data-ygx-on] .viewer__next,
-  [data-ygx-on] .viewer__prev { background: var(--ygx-bar) !important; }
+  [data-ygx-on] .viewer__prev {
+    background: var(--ygx-bar) !important;
+  }
   [data-ygx-on] .viewer__next i,
   [data-ygx-on] .viewer__prev i,
-  [data-ygx-on] .viewer__toolbar { color: var(--ygx-bar-item) !important; }
+  [data-ygx-on] .viewer__toolbar {
+    color: var(--ygx-bar-item) !important;
+  }
 
   /* Bottom bar: the buttons, plus the thumbnail strip that slides up behind. */
   [data-ygx-on] .viewer__thumbnailswrap {
     background: var(--ygx-bar) !important;
     border-top: 1px solid var(--ygx-bar-line) !important;
   }
-  [data-ygx-on] .viewer__thumbnails { background: var(--ygx-bar-alt) !important; }
-  [data-ygx-on] .viewer__thumbnail { border-color: var(--ygx-bar-acc) !important; }
+  [data-ygx-on] .viewer__thumbnails {
+    background: var(--ygx-bar-alt) !important;
+  }
+  [data-ygx-on] .viewer__thumbnail {
+    border-color: var(--ygx-bar-acc) !important;
+  }
   /* Same treatment as the album header's buttons, and for the same reason:
-     Yupoo fills .button green on hover, which is louder than the chrome. */
+      Yupoo fills .button green on hover, which is louder than the chrome. */
   [data-ygx-on] .viewer__btns .button,
   [data-ygx-on] .viewer__bottomButtons .button {
     background: transparent !important;
@@ -1785,9 +1959,9 @@
   }
 
   /* The photo grid answers the Card size slider and the active design's min
-     width, so the panel controls do something here too. All three of Yupoo's
-     view classes are normalised onto it: the view buttons are hidden, and the
-     class is server-set, so a stale nor/max/min would otherwise stick. */
+      width, so the panel controls do something here too. All three of Yupoo's
+      view classes are normalised onto it: the view buttons are hidden, and the
+      class is server-set, so a stale nor/max/min would otherwise stick. */
   [data-ygx-on] .showalbum__parent {
     display: grid !important;
     grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
@@ -1796,68 +1970,89 @@
   }
   /* Yupoo's clearfix pseudo-elements would each take a grid cell. */
   [data-ygx-on] .showalbum__parent::before,
-  [data-ygx-on] .showalbum__parent::after { display: none !important; }
+  [data-ygx-on] .showalbum__parent::after {
+    display: none !important;
+  }
   [data-ygx-on] .showalbum__parent > .showalbum__children {
     width: auto !important;
     margin: 0 !important;
   }
 
   /* Photo tiles take the .ygx-card treatment. border-box is load-bearing:
-     Yupoo sizes them with calc(), so a content-box border wraps the row. */
+      Yupoo sizes them with calc(), so a content-box border wraps the row. */
   [data-ygx-on] .showalbum__children.image__main {
     box-sizing: border-box;
     background: var(--ygx-bar);
     border: 1px solid var(--ygx-bar-line);
     border-radius: 14px;
     overflow: hidden;
-    transition: transform .22s cubic-bezier(.2,.7,.3,1), border-color .22s, box-shadow .22s;
+    transition:
+      transform 0.22s cubic-bezier(0.2, 0.7, 0.3, 1),
+      border-color 0.22s,
+      box-shadow 0.22s;
   }
   [data-ygx-on] .showalbum__children.image__main:hover {
     border-color: var(--ygx-bar-hover-line);
     transform: translateY(-3px);
     box-shadow: 0 14px 34px var(--ygx-drop);
   }
-  [data-ygx-on] .image__imagewrap { background: var(--ygx-bar-alt); }
+  [data-ygx-on] .image__imagewrap {
+    background: var(--ygx-bar-alt);
+  }
   /* Yupoo's own hover frame is a ::after at #49bc85; retinted, not removed. */
-  [data-ygx-on] .image__imagewrap:hover:after { border-color: var(--ygx-bar-acc) !important; }
+  [data-ygx-on] .image__imagewrap:hover:after {
+    border-color: var(--ygx-bar-acc) !important;
+  }
   /* Upload filenames, meaningless to a shopper. Yupoo already hides them in
-     Thumbnail view; this extends that to Detail and Big. */
-  [data-ygx-on] .image__decwrap { display: none !important; }
+      Thumbnail view; this extends that to Detail and Big. */
+  [data-ygx-on] .image__decwrap {
+    display: none !important;
+  }
 
-  :root { --ygx-min: 260px; }
+  :root {
+    --ygx-min: 260px;
+  }
 
   .ygx-root {
-    --ygx-card:    #191c24;
+    --ygx-card: #191c24;
     --ygx-card-hi: #212530;
-    --ygx-line:    #2a2f3b;
+    --ygx-line: #2a2f3b;
     --ygx-line-hi: #3a4152;
-    --ygx-text:    #e9ecf3;
-    --ygx-muted:   #97a0b2;
+    --ygx-text: #e9ecf3;
+    --ygx-muted: #97a0b2;
     /* The accent as text sits on a wash; as a surface it carries text. They
-       diverge in light, so the badge does not read the text green. */
-    --ygx-accent:      #3fbb85;
-    --ygx-accent-bg:   #3fbb85;
-    --ygx-on-accent:   #06120c;
-    --ygx-accent-wash: rgba(63,187,133,.08);
-    --ygx-shot:        #0b0d12;
-    --ygx-badge:       rgba(10,12,18,.72);
-    --ygx-badge-text:  #dfe4ee;
-    --ygx-shadow:      0 14px 34px rgba(0,0,0,.45);
+        diverge in light, so the badge does not read the text green. */
+    --ygx-accent: #3fbb85;
+    --ygx-accent-bg: #3fbb85;
+    --ygx-on-accent: #06120c;
+    --ygx-accent-wash: rgba(63, 187, 133, 0.08);
+    --ygx-shot: #0b0d12;
+    --ygx-badge: rgba(10, 12, 18, 0.72);
+    --ygx-badge-text: #dfe4ee;
+    --ygx-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
     box-sizing: border-box;
     width: 100%;
     padding: 8px 24px 28px;
     color: var(--ygx-text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-                 "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", Roboto, sans-serif;
     /* Keep the whole grid below Yupoo's own overlays (category dropdown,
-       lightbox, modals) rather than competing with them. */
+        lightbox, modals) rather than competing with them. */
     position: relative;
     z-index: 0;
     isolation: isolate;
   }
-  .ygx-root *, .ygx-root *::before, .ygx-root *::after { box-sizing: border-box; }
+  .ygx-root *,
+  .ygx-root *::before,
+  .ygx-root *::after {
+    box-sizing: border-box;
+  }
 
-  .ygx-grid { display: grid; gap: 18px; }
+  .ygx-grid {
+    display: grid;
+    gap: 18px;
+  }
 
   .ygx-card {
     position: relative;
@@ -1870,10 +2065,13 @@
     border-radius: 14px;
     overflow: hidden;
     /* Contains the price pill / count badge z-index inside the card, so they
-       can't paint over page chrome. */
+        can't paint over page chrome. */
     isolation: isolate;
-    transition: transform .22s cubic-bezier(.2,.7,.3,1),
-                border-color .22s, box-shadow .22s, background .22s;
+    transition:
+      transform 0.22s cubic-bezier(0.2, 0.7, 0.3, 1),
+      border-color 0.22s,
+      box-shadow 0.22s,
+      background 0.22s;
   }
   .ygx-card:hover {
     background: var(--ygx-card-hi);
@@ -1882,198 +2080,445 @@
     box-shadow: var(--ygx-shadow);
   }
 
-  .ygx-media { position: relative; overflow: hidden; background: var(--ygx-shot); flex: 0 0 auto; }
-  .ygx-img {
-    display: block; width: 100%; height: 100%; object-fit: cover;
-    opacity: 0; transition: opacity .35s ease, transform .5s cubic-bezier(.2,.7,.3,1);
+  .ygx-media {
+    position: relative;
+    overflow: hidden;
+    background: var(--ygx-shot);
+    flex: 0 0 auto;
   }
-  .ygx-img.is-loaded { opacity: 1; }
-  .ygx-card:hover .ygx-img { transform: scale(1.05); }
+  .ygx-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition:
+      opacity 0.35s ease,
+      transform 0.5s cubic-bezier(0.2, 0.7, 0.3, 1);
+  }
+  .ygx-img.is-loaded {
+    opacity: 1;
+  }
+  .ygx-card:hover .ygx-img {
+    transform: scale(1.05);
+  }
 
   .ygx-scrim {
-    position: absolute; inset: auto 0 0 0; height: 55%;
-    background: linear-gradient(to top, rgba(6,8,12,.88), rgba(6,8,12,0));
-    opacity: 0; transition: opacity .25s; pointer-events: none;
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 55%;
+    background: linear-gradient(to top, rgba(6, 8, 12, 0.88), rgba(6, 8, 12, 0));
+    opacity: 0;
+    transition: opacity 0.25s;
+    pointer-events: none;
   }
 
   .ygx-count {
-    position: absolute; right: 8px; bottom: 8px;
-    padding: 2px 7px; border-radius: 999px;
-    font-size: 11px; font-weight: 600; line-height: 1.5;
-    color: var(--ygx-badge-text); background: var(--ygx-badge); z-index: 3;
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--ygx-badge-text);
+    background: var(--ygx-badge);
+    z-index: 3;
   }
   .ygx-price-float {
-    position: absolute; left: 8px; top: 8px;
-    padding: 4px 10px; border-radius: 999px;
-    font-size: 12px; font-weight: 700; letter-spacing: .2px;
-    color: var(--ygx-on-accent); background: var(--ygx-accent-bg);
-    box-shadow: 0 2px 10px rgba(0,0,0,.35); z-index: 3; display: none;
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    color: var(--ygx-on-accent);
+    background: var(--ygx-accent-bg);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    z-index: 3;
+    display: none;
   }
 
-  .ygx-body { padding: 11px 12px 13px; display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; }
-  .ygx-title {
-    font-size: 13px; line-height: 1.45; color: var(--ygx-text);
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; word-break: break-word;
+  .ygx-body {
+    padding: 11px 12px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1 1 auto;
   }
-  .ygx-meta { display: flex; align-items: center; gap: 8px; margin-top: auto; }
-  .ygx-price { font-size: 14px; font-weight: 700; color: var(--ygx-accent); letter-spacing: .2px; }
-  .ygx-chip { font-size: 11px; color: var(--ygx-muted); border: 1px solid var(--ygx-line); border-radius: 6px; padding: 2px 6px; }
+  .ygx-title {
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--ygx-text);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+  }
+  .ygx-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: auto;
+  }
+  .ygx-price {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ygx-accent);
+    letter-spacing: 0.2px;
+  }
+  .ygx-chip {
+    font-size: 11px;
+    color: var(--ygx-muted);
+    border: 1px solid var(--ygx-line);
+    border-radius: 6px;
+    padding: 2px 6px;
+  }
 
   /* Fixed quarter-width slots: at width:100% a 1- or 2-photo album stretched
-     them full width and they read as a second giant image under the cover. */
-  .ygx-strip { display: flex; gap: 4px; padding: 0 12px 12px; }
-  .ygx-thumb {
-    flex: 0 0 calc(25% - 3px); max-width: calc(25% - 3px);
-    aspect-ratio: 1/1; object-fit: cover;
-    border-radius: 5px; background: var(--ygx-shot); opacity: .78; transition: opacity .2s;
+      them full width and they read as a second giant image under the cover. */
+  .ygx-strip {
+    display: flex;
+    gap: 4px;
+    padding: 0 12px 12px;
   }
-  .ygx-card:hover .ygx-thumb { opacity: 1; }
+  .ygx-thumb {
+    flex: 0 0 calc(25% - 3px);
+    max-width: calc(25% - 3px);
+    aspect-ratio: 1/1;
+    object-fit: cover;
+    border-radius: 5px;
+    background: var(--ygx-shot);
+    opacity: 0.78;
+    transition: opacity 0.2s;
+  }
+  .ygx-card:hover .ygx-thumb {
+    opacity: 1;
+  }
 
   /* ---- Empty album: in the media area, so Dense and Masonry keep it ----- */
   .ygx-empty-box {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 6px; color: var(--ygx-muted);
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: var(--ygx-muted);
   }
-  .ygx-empty-icon { display: block; width: 26px; height: 26px; opacity: .75; }
-  .ygx-empty-icon svg { display: block; width: 100%; height: 100%; }
-  .ygx-empty-label { font-size: 11px; line-height: 1; }
+  .ygx-empty-icon {
+    display: block;
+    width: 26px;
+    height: 26px;
+    opacity: 0.75;
+  }
+  .ygx-empty-icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .ygx-empty-label {
+    font-size: 11px;
+    line-height: 1;
+  }
 
   /* ---- "More" tile ----------------------------------------------------- */
-  .ygx-card.is-more { background: transparent; border-color: var(--ygx-accent); }
+  .ygx-card.is-more {
+    background: transparent;
+    border-color: var(--ygx-accent);
+  }
   .ygx-card.is-more:hover {
     background: var(--ygx-accent-wash);
     border-color: var(--ygx-accent);
     box-shadow: none;
   }
-  .ygx-card.is-more .ygx-media { background: transparent; }
-  .ygx-more-box {
-    position: absolute; inset: 0; padding: 10px; text-align: center;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 4px; color: var(--ygx-accent);
+  .ygx-card.is-more .ygx-media {
+    background: transparent;
   }
-  .ygx-more-arrow { font-size: 22px; line-height: 1; }
+  .ygx-more-box {
+    position: absolute;
+    inset: 0;
+    padding: 10px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--ygx-accent);
+  }
+  .ygx-more-arrow {
+    font-size: 22px;
+    line-height: 1;
+  }
   /* Yupoo's label is lowercase "more"; cased here so the text stays verbatim. */
-  .ygx-more-label { font-size: 14px; font-weight: 700; text-transform: capitalize; }
-  .ygx-more-note { font-size: 12px; color: var(--ygx-muted); }
+  .ygx-more-label {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: capitalize;
+  }
+  .ygx-more-note {
+    font-size: 12px;
+    color: var(--ygx-muted);
+  }
 
   /* ---- 1. Editorial ---------------------------------------------------- */
   .ygx-grid[data-design="editorial"] {
-    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr)); gap: 22px;
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
+    gap: 22px;
   }
-  .ygx-grid[data-design="editorial"] .ygx-media { aspect-ratio: 4/5; }
-  .ygx-grid[data-design="editorial"] .ygx-price-float { display: block; }
-  .ygx-grid[data-design="editorial"] .ygx-price { display: none; }
-  .ygx-grid[data-design="editorial"] .ygx-card { border-radius: 16px; }
+  .ygx-grid[data-design="editorial"] .ygx-media {
+    aspect-ratio: 4/5;
+  }
+  .ygx-grid[data-design="editorial"] .ygx-price-float {
+    display: block;
+  }
+  .ygx-grid[data-design="editorial"] .ygx-price {
+    display: none;
+  }
+  .ygx-grid[data-design="editorial"] .ygx-card {
+    border-radius: 16px;
+  }
 
   /* ---- 2. Dense -------------------------------------------------------- */
   .ygx-grid[data-design="dense"] {
-    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr)); gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
+    gap: 10px;
   }
-  .ygx-grid[data-design="dense"] .ygx-card { border-radius: 10px; }
-  .ygx-grid[data-design="dense"] .ygx-media { aspect-ratio: 1/1; }
+  .ygx-grid[data-design="dense"] .ygx-card {
+    border-radius: 10px;
+  }
+  .ygx-grid[data-design="dense"] .ygx-media {
+    aspect-ratio: 1/1;
+  }
   .ygx-grid[data-design="dense"] .ygx-price-float {
-    display: block; left: 7px; top: auto; bottom: 7px; font-size: 11px; padding: 2px 8px;
+    display: block;
+    left: 7px;
+    top: auto;
+    bottom: 7px;
+    font-size: 11px;
+    padding: 2px 8px;
   }
   .ygx-grid[data-design="dense"] .ygx-body {
-    position: absolute; inset: auto 0 0 0; z-index: 4; padding: 26px 10px 10px;
-    background: linear-gradient(to top, rgba(6,8,12,.95) 40%, rgba(6,8,12,0));
-    opacity: 0; transform: translateY(6px); transition: opacity .2s, transform .2s;
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: 4;
+    padding: 26px 10px 10px;
+    background: linear-gradient(
+      to top,
+      rgba(6, 8, 12, 0.95) 40%,
+      rgba(6, 8, 12, 0)
+    );
+    opacity: 0;
+    transform: translateY(6px);
+    transition:
+      opacity 0.2s,
+      transform 0.2s;
   }
-  .ygx-grid[data-design="dense"] .ygx-card:hover .ygx-body { opacity: 1; transform: none; }
-  .ygx-grid[data-design="dense"] .ygx-card:hover .ygx-price-float { opacity: 0; }
-  .ygx-grid[data-design="dense"] .ygx-title { font-size: 11.5px; -webkit-line-clamp: 3; }
-  .ygx-grid[data-design="dense"] .ygx-meta { display: none; }
-  .ygx-grid[data-design="dense"] .ygx-card:hover .ygx-img { transform: scale(1.08); }
+  .ygx-grid[data-design="dense"] .ygx-card:hover .ygx-body {
+    opacity: 1;
+    transform: none;
+  }
+  .ygx-grid[data-design="dense"] .ygx-card:hover .ygx-price-float {
+    opacity: 0;
+  }
+  .ygx-grid[data-design="dense"] .ygx-title {
+    font-size: 11.5px;
+    -webkit-line-clamp: 3;
+  }
+  .ygx-grid[data-design="dense"] .ygx-meta {
+    display: none;
+  }
+  .ygx-grid[data-design="dense"] .ygx-card:hover .ygx-img {
+    transform: scale(1.08);
+  }
 
   /* ---- 3. Info card ---------------------------------------------------- */
   .ygx-grid[data-design="info"] {
-    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr)); gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
+    gap: 16px;
   }
-  .ygx-grid[data-design="info"] .ygx-media { aspect-ratio: 1/1; border-bottom: 1px solid var(--ygx-line); }
-  .ygx-grid[data-design="info"] .ygx-body { padding: 12px 12px 10px; }
-  .ygx-grid[data-design="info"] .ygx-title { min-height: 2.9em; }
+  .ygx-grid[data-design="info"] .ygx-media {
+    aspect-ratio: 1/1;
+    border-bottom: 1px solid var(--ygx-line);
+  }
+  .ygx-grid[data-design="info"] .ygx-body {
+    padding: 12px 12px 10px;
+  }
+  .ygx-grid[data-design="info"] .ygx-title {
+    min-height: 2.9em;
+  }
   .ygx-grid[data-design="info"] .ygx-meta {
-    padding-top: 9px; border-top: 1px dashed var(--ygx-line); justify-content: space-between;
+    padding-top: 9px;
+    border-top: 1px dashed var(--ygx-line);
+    justify-content: space-between;
   }
 
   /* ---- 4. Masonry ------------------------------------------------------ */
   /* column-width is the multi-column form of minmax(var(--ygx-min), 1fr), so
-     Masonry answers to the density slider exactly like the grid designs. Fixed
-     column-count breakpoints used to override the slider below 1500px. */
+      Masonry answers to the density slider exactly like the grid designs. Fixed
+      column-count breakpoints used to override the slider below 1500px. */
   .ygx-grid[data-design="masonry"] {
-    display: block; column-width: var(--ygx-min); column-count: auto; column-gap: 16px;
+    display: block;
+    column-width: var(--ygx-min);
+    column-count: auto;
+    column-gap: 16px;
   }
   .ygx-grid[data-design="masonry"] .ygx-card {
-    break-inside: avoid; display: inline-block; width: 100%; margin: 0 0 16px; border-radius: 12px;
+    break-inside: avoid;
+    display: inline-block;
+    width: 100%;
+    margin: 0 0 16px;
+    border-radius: 12px;
   }
-  .ygx-grid[data-design="masonry"] .ygx-media { aspect-ratio: auto; }
-  .ygx-grid[data-design="masonry"] .ygx-img { height: auto; min-height: 90px; }
+  .ygx-grid[data-design="masonry"] .ygx-media {
+    aspect-ratio: auto;
+  }
+  .ygx-grid[data-design="masonry"] .ygx-img {
+    height: auto;
+    min-height: 90px;
+  }
   /* Masonry sizes from the image; neither card has one, so pin a ratio. */
   .ygx-grid[data-design="masonry"] .ygx-card.is-more .ygx-media,
-  .ygx-grid[data-design="masonry"] .ygx-card.is-empty .ygx-media { aspect-ratio: 3/4; }
-  .ygx-grid[data-design="masonry"] .ygx-scrim { opacity: 1; }
+  .ygx-grid[data-design="masonry"] .ygx-card.is-empty .ygx-media {
+    aspect-ratio: 3/4;
+  }
+  .ygx-grid[data-design="masonry"] .ygx-scrim {
+    opacity: 1;
+  }
   .ygx-grid[data-design="masonry"] .ygx-body {
-    position: absolute; inset: auto 0 0 0; z-index: 4; padding: 10px 12px 11px; gap: 4px;
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: 4;
+    padding: 10px 12px 11px;
+    gap: 4px;
   }
   .ygx-grid[data-design="masonry"] .ygx-title {
-    -webkit-line-clamp: 1; font-size: 12px; color: #f2f5fa; text-shadow: 0 1px 3px rgba(0,0,0,.7);
+    -webkit-line-clamp: 1;
+    font-size: 12px;
+    color: #f2f5fa;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
   }
-  .ygx-grid[data-design="masonry"] .ygx-chip { display: none; }
-  .ygx-grid[data-design="masonry"] .ygx-price { font-size: 13px; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+  .ygx-grid[data-design="masonry"] .ygx-chip {
+    display: none;
+  }
+  .ygx-grid[data-design="masonry"] .ygx-price {
+    font-size: 13px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  }
 
   /* ---- 5. Showcase ----------------------------------------------------- */
   .ygx-grid[data-design="showcase"] {
-    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr)); gap: 24px;
+    grid-template-columns: repeat(auto-fill, minmax(var(--ygx-min), 1fr));
+    gap: 24px;
   }
-  .ygx-grid[data-design="showcase"] .ygx-card { border-radius: 18px; }
-  .ygx-grid[data-design="showcase"] .ygx-media { aspect-ratio: 3/4; }
-  .ygx-grid[data-design="showcase"] .ygx-scrim { opacity: 1; height: 62%; }
+  .ygx-grid[data-design="showcase"] .ygx-card {
+    border-radius: 18px;
+  }
+  .ygx-grid[data-design="showcase"] .ygx-media {
+    aspect-ratio: 3/4;
+  }
+  .ygx-grid[data-design="showcase"] .ygx-scrim {
+    opacity: 1;
+    height: 62%;
+  }
   .ygx-grid[data-design="showcase"] .ygx-body {
-    position: absolute; inset: auto 0 0 0; z-index: 4; padding: 14px 16px 16px; gap: 6px;
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: 4;
+    padding: 14px 16px 16px;
+    gap: 6px;
   }
   .ygx-grid[data-design="showcase"] .ygx-title {
-    font-size: 14px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.75);
+    font-size: 14px;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
   }
   .ygx-grid[data-design="showcase"] .ygx-price {
-    font-size: 18px; font-weight: 800; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.75);
+    font-size: 18px;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
   }
   .ygx-grid[data-design="showcase"] .ygx-chip {
-    background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.18); color: #dfe5f0;
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.18);
+    color: #dfe5f0;
   }
-  .ygx-grid[data-design="showcase"] .ygx-count { top: 10px; right: 10px; bottom: auto; }
-  .ygx-grid[data-design="showcase"] .ygx-card:hover .ygx-img { transform: none; }
+  .ygx-grid[data-design="showcase"] .ygx-count {
+    top: 10px;
+    right: 10px;
+    bottom: auto;
+  }
+  .ygx-grid[data-design="showcase"] .ygx-card:hover .ygx-img {
+    transform: none;
+  }
 
   /* ---- Endless scroll -------------------------------------------------- */
   [data-ygx-endless] nav.pagination__main,
-  [data-ygx-endless] .categories__box-right-pagination { display: none !important; }
+  [data-ygx-endless] .categories__box-right-pagination {
+    display: none !important;
+  }
 
   .ygx-endless {
-    min-height: 40px; padding: 4px 24px 30px;
-    display: flex; align-items: center; justify-content: center;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 40px;
+    padding: 4px 24px 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
-  .ygx-endless-text { font-size: 12px; color: var(--ygx-bar-dim); letter-spacing: .2px; }
-  .ygx-endless.is-paused { cursor: pointer; }
-  .ygx-endless.is-paused .ygx-endless-text { color: var(--ygx-bar-acc-text); }
+  .ygx-endless-text {
+    font-size: 12px;
+    color: var(--ygx-bar-dim);
+    letter-spacing: 0.2px;
+  }
+  .ygx-endless.is-paused {
+    cursor: pointer;
+  }
+  .ygx-endless.is-paused .ygx-endless-text {
+    color: var(--ygx-bar-acc-text);
+  }
 
   /* ---- Control panel --------------------------------------------------- */
   .ygx-panel {
-    position: fixed; right: 18px; bottom: 18px; z-index: 2147483000;
-    width: 246px; border-radius: 14px; overflow: hidden;
-    background: var(--ygx-panel-bg); border: 1px solid var(--ygx-panel-line);
-    box-shadow: 0 18px 44px var(--ygx-panel-shadow); color: var(--ygx-bar-text);
-    font: 500 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 2147483000;
+    width: 246px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--ygx-panel-bg);
+    border: 1px solid var(--ygx-panel-line);
+    box-shadow: 0 18px 44px var(--ygx-panel-shadow);
+    color: var(--ygx-bar-text);
+    font:
+      500 12px/1.4 -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      sans-serif;
   }
-  .ygx-panel * { box-sizing: border-box; }
+  .ygx-panel * {
+    box-sizing: border-box;
+  }
   /* Dimmed by class, so the value lives here and the theme buttons dim too. */
   .ygx-panel.is-disabled .ygx-designs,
   .ygx-panel.is-disabled .ygx-themes,
-  .ygx-panel.is-disabled .ygx-row { opacity: .4; pointer-events: none; }
+  .ygx-panel.is-disabled .ygx-row {
+    opacity: 0.4;
+    pointer-events: none;
+  }
 
   /* Host-page armour: "all: unset" resets only the base state, so a Yupoo
-     button:hover rule still shifts our geometry. Pinned across every state. */
+      button:hover rule still shifts our geometry. Pinned across every state. */
   .ygx-panel button,
   .ygx-panel button:hover,
   .ygx-panel button:focus,
@@ -2101,62 +2546,158 @@
   .ygx-panel .ygx-design-btn,
   .ygx-panel .ygx-design-btn:hover,
   .ygx-panel .ygx-theme-btn,
-  .ygx-panel .ygx-theme-btn:hover { padding: 7px 6px !important; font-weight: 600 !important; }
+  .ygx-panel .ygx-theme-btn:hover {
+    padding: 7px 6px !important;
+    font-weight: 600 !important;
+  }
   .ygx-panel .ygx-toggle,
-  .ygx-panel .ygx-toggle:hover { padding: 7px !important; font-weight: 600 !important; }
+  .ygx-panel .ygx-toggle:hover {
+    padding: 7px !important;
+    font-weight: 600 !important;
+  }
   .ygx-panel .ygx-icon-btn,
-  .ygx-panel .ygx-icon-btn:hover { padding: 0 !important; width: 22px !important; height: 22px !important; }
+  .ygx-panel .ygx-icon-btn:hover {
+    padding: 0 !important;
+    width: 22px !important;
+    height: 22px !important;
+  }
   .ygx-panel-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 10px 9px 12px; border-bottom: 1px solid var(--ygx-panel-head-line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 10px 9px 12px;
+    border-bottom: 1px solid var(--ygx-panel-head-line);
   }
-  .ygx-panel-title { font-weight: 700; letter-spacing: .3px; font-size: 12px; }
+  .ygx-panel-title {
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    font-size: 12px;
+  }
   .ygx-icon-btn {
-    all: unset; cursor: pointer; width: 22px; height: 22px; border-radius: 6px;
-    display: grid; place-items: center; color: #97a0b2; font-size: 15px;
+    all: unset;
+    cursor: pointer;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    color: #97a0b2;
+    font-size: 15px;
   }
-  .ygx-icon-btn:hover { background: var(--ygx-panel-icon-hover); color: var(--ygx-bar-strong); }
-  .ygx-panel.is-collapsed .ygx-panel-body { display: none; }
-  .ygx-panel-body { padding: 11px 12px 13px; display: flex; flex-direction: column; gap: 10px; }
-  .ygx-designs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .ygx-icon-btn:hover {
+    background: var(--ygx-panel-icon-hover);
+    color: var(--ygx-bar-strong);
+  }
+  .ygx-panel.is-collapsed .ygx-panel-body {
+    display: none;
+  }
+  .ygx-panel-body {
+    padding: 11px 12px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .ygx-designs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
   .ygx-design-btn {
-    all: unset; cursor: pointer; text-align: center; padding: 7px 6px; border-radius: 8px;
-    font-size: 11.5px; font-weight: 600;
-    background: var(--ygx-panel-btn); color: var(--ygx-bar-item);
-    transition: background .15s, color .15s;
+    all: unset;
+    cursor: pointer;
+    text-align: center;
+    padding: 7px 6px;
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: var(--ygx-panel-btn);
+    color: var(--ygx-bar-item);
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
-  .ygx-design-btn:hover { background: var(--ygx-panel-btn-hover); color: var(--ygx-bar-strong); }
-  .ygx-design-btn.is-active { background: var(--ygx-bar-acc); color: var(--ygx-bar-on); }
-  .ygx-designs .ygx-design-btn:nth-child(5) { grid-column: 1 / -1; }
+  .ygx-design-btn:hover {
+    background: var(--ygx-panel-btn-hover);
+    color: var(--ygx-bar-strong);
+  }
+  .ygx-design-btn.is-active {
+    background: var(--ygx-bar-acc);
+    color: var(--ygx-bar-on);
+  }
+  .ygx-designs .ygx-design-btn:nth-child(5) {
+    grid-column: 1 / -1;
+  }
 
-  .ygx-themes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .ygx-theme-btn {
-    all: unset; cursor: pointer; text-align: center; padding: 6px; border-radius: 8px;
-    font-size: 11.5px; font-weight: 600;
-    background: var(--ygx-panel-btn); color: var(--ygx-bar-item);
-    transition: background .15s, color .15s;
+  .ygx-themes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
   }
-  .ygx-theme-btn:hover { background: var(--ygx-panel-btn-hover); color: var(--ygx-bar-strong); }
-  .ygx-theme-btn.is-active { background: var(--ygx-bar-acc); color: var(--ygx-bar-on); }
-  .ygx-row { display: flex; align-items: center; gap: 9px; }
-  .ygx-check { cursor: pointer; }
-  .ygx-check input { accent-color: var(--ygx-bar-acc); margin: 0; }
-  .ygx-row-label { color: var(--ygx-bar-dim); font-size: 11px; white-space: nowrap; }
+  .ygx-theme-btn {
+    all: unset;
+    cursor: pointer;
+    text-align: center;
+    padding: 6px;
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: var(--ygx-panel-btn);
+    color: var(--ygx-bar-item);
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+  .ygx-theme-btn:hover {
+    background: var(--ygx-panel-btn-hover);
+    color: var(--ygx-bar-strong);
+  }
+  .ygx-theme-btn.is-active {
+    background: var(--ygx-bar-acc);
+    color: var(--ygx-bar-on);
+  }
+  .ygx-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .ygx-check {
+    cursor: pointer;
+  }
+  .ygx-check input {
+    accent-color: var(--ygx-bar-acc);
+    margin: 0;
+  }
+  .ygx-row-label {
+    color: var(--ygx-bar-dim);
+    font-size: 11px;
+    white-space: nowrap;
+  }
   /* Shelved setting: visible so it is not forgotten, but not operable. */
-  .ygx-row.ygx-shelved { cursor: not-allowed; }
-  .ygx-row.ygx-shelved .ygx-row-label { color: var(--ygx-panel-off); }
+  .ygx-row.ygx-shelved {
+    cursor: not-allowed;
+  }
+  .ygx-row.ygx-shelved .ygx-row-label {
+    color: var(--ygx-panel-off);
+  }
   .ygx-note {
-    margin-left: auto; font-size: 10px; letter-spacing: .3px; color: var(--ygx-panel-note);
-    border: 1px solid var(--ygx-panel-line); border-radius: 5px; padding: 1px 5px;
+    margin-left: auto;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    color: var(--ygx-panel-note);
+    border: 1px solid var(--ygx-panel-line);
+    border-radius: 5px;
+    padding: 1px 5px;
   }
   /* Track and thumb are drawn here because accent-color only reaches the fill:
-     the track stays Chromium's white slab, which is loud in a dark panel.
-     --ygx-fill is the value as a percentage, set on input. */
-  .ygx-range { flex: 1; }
+      the track stays Chromium's white slab, which is loud in a dark panel.
+      --ygx-fill is the value as a percentage, set on input. */
+  .ygx-range {
+    flex: 1;
+  }
   /* Host-page armour, as for the panel's buttons. Yupoo styles
-     input:not([type=checkbox]) at (0,1,1), which outranks a single class, so
-     without this the control keeps a white background, .6em of padding and a
-     grey border that turns green on hover. Checkboxes are exempt there. */
+      input:not([type=checkbox]) at (0,1,1), which outranks a single class, so
+      without this the control keeps a white background, .6em of padding and a
+      grey border that turns green on hover. Checkboxes are exempt there. */
   .ygx-panel .ygx-range,
   .ygx-panel .ygx-range:hover,
   .ygx-panel .ygx-range:focus {
@@ -2172,129 +2713,192 @@
     cursor: pointer;
   }
   .ygx-range::-webkit-slider-runnable-track {
-    height: 4px; border-radius: 99px;
-    background: linear-gradient(90deg,
-      var(--ygx-bar-acc) var(--ygx-fill, 50%), var(--ygx-panel-line) var(--ygx-fill, 50%));
+    height: 4px;
+    border-radius: 99px;
+    background: linear-gradient(
+      90deg,
+      var(--ygx-bar-acc) var(--ygx-fill, 50%),
+      var(--ygx-panel-line) var(--ygx-fill, 50%)
+    );
   }
   /* Half the difference between thumb and track, or the thumb rides high. */
   .ygx-range::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none;
-    width: 13px; height: 13px; margin-top: -4.5px;
-    border: none; border-radius: 50%; background: var(--ygx-bar-acc);
+    -webkit-appearance: none;
+    appearance: none;
+    width: 13px;
+    height: 13px;
+    margin-top: -4.5px;
+    border: none;
+    border-radius: 50%;
+    background: var(--ygx-bar-acc);
   }
   /* Firefox fills the track itself, so it needs no --ygx-fill. */
-  .ygx-range::-moz-range-track { height: 4px; border-radius: 99px; background: var(--ygx-panel-line); }
-  .ygx-range::-moz-range-progress { height: 4px; border-radius: 99px; background: var(--ygx-bar-acc); }
+  .ygx-range::-moz-range-track {
+    height: 4px;
+    border-radius: 99px;
+    background: var(--ygx-panel-line);
+  }
+  .ygx-range::-moz-range-progress {
+    height: 4px;
+    border-radius: 99px;
+    background: var(--ygx-bar-acc);
+  }
   .ygx-range::-moz-range-thumb {
-    width: 13px; height: 13px; border: none; border-radius: 50%; background: var(--ygx-bar-acc);
+    width: 13px;
+    height: 13px;
+    border: none;
+    border-radius: 50%;
+    background: var(--ygx-bar-acc);
   }
   .ygx-toggle {
-    all: unset; cursor: pointer; text-align: center; padding: 7px; border-radius: 8px;
-    font-size: 11.5px; font-weight: 600;
-    background: var(--ygx-panel-btn); color: #97a0b2;
+    all: unset;
+    cursor: pointer;
+    text-align: center;
+    padding: 7px;
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: var(--ygx-panel-btn);
+    color: #97a0b2;
     border: 1px solid var(--ygx-panel-line);
   }
-  .ygx-toggle:hover { background: var(--ygx-panel-btn-hover); color: var(--ygx-bar-strong); }
-  .ygx-toggle.is-off { background: var(--ygx-bar-acc); color: var(--ygx-bar-on); border-color: transparent; }
+  .ygx-toggle:hover {
+    background: var(--ygx-panel-btn-hover);
+    color: var(--ygx-bar-strong);
+  }
+  .ygx-toggle.is-off {
+    background: var(--ygx-bar-acc);
+    color: var(--ygx-bar-on);
+    border-color: transparent;
+  }
   /* Yupoo styles anchors green and underlined, so the credit link needs the
-     same across-every-state armour the panel's buttons have. */
-  .ygx-credit { margin-top: -2px; text-align: center; font-size: 10.5px; color: var(--ygx-panel-note); }
+      same across-every-state armour the panel's buttons have. */
+  .ygx-credit {
+    margin-top: -2px;
+    text-align: center;
+    font-size: 10.5px;
+    color: var(--ygx-panel-note);
+  }
   .ygx-panel .ygx-credit-link,
   .ygx-panel .ygx-credit-link:hover,
   .ygx-panel .ygx-credit-link:focus,
   .ygx-panel .ygx-credit-link:active,
   .ygx-panel .ygx-credit-link:visited {
-    color: var(--ygx-bar-acc) !important; font-weight: 600 !important; text-decoration: none !important;
+    color: var(--ygx-bar-acc) !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
   }
-  .ygx-panel .ygx-credit-link:hover { text-decoration: underline !important; }
-  .ygx-credit-sep { margin: 0 5px; opacity: .55; }
+  .ygx-panel .ygx-credit-link:hover {
+    text-decoration: underline !important;
+  }
+  .ygx-credit-sep {
+    margin: 0 5px;
+    opacity: 0.55;
+  }
 
   /* ---- Light theme (default): two token blocks and five exceptions ------ */
 
   /* Surfaces only. Scrim overlays keep white-on-gradient in both themes,
-     because that text sits on the photograph rather than on the card. */
+      because that text sits on the photograph rather than on the card. */
 
   /* Flipping these re-themes the whole chrome. What is left below is only what
-     a token cannot express: a baked-in PNG, or a pre-inverted background image.
-     Qualified with :root so it outranks dark on specificity, not source order. */
+      a token cannot express: a baked-in PNG, or a pre-inverted background image.
+      Qualified with :root so it outranks dark on specificity, not source order. */
   :root[data-ygx-theme="light"] {
-    --ygx-page:     #f6f7f9;
-    --ygx-bar:      #ffffff;
-    --ygx-bar-alt:  #fbfbfc;
+    --ygx-page: #f6f7f9;
+    --ygx-bar: #ffffff;
+    --ygx-bar-alt: #fbfbfc;
     --ygx-bar-line: #e4e7ec;
     --ygx-bar-text: #1c2024;
-    --ygx-bar-dim:  #667085;
-    --ygx-bar-acc:  #16a06a;
-    --ygx-bar-on:   #ffffff;
-    --ygx-drop:     rgba(16,24,40,.14);
-    --ygx-bar-strong:     #101828;
-    --ygx-bar-active:     #101828;
-    --ygx-bar-head:       #475467;
-    --ygx-bar-item:       #475467;
-    --ygx-bar-link:       #475467;
-    --ygx-bar-sub:        #667085;
-    --ygx-bar-hover:      #f4f6f8;
+    --ygx-bar-dim: #667085;
+    --ygx-bar-acc: #16a06a;
+    --ygx-bar-on: #ffffff;
+    --ygx-drop: rgba(16, 24, 40, 0.14);
+    --ygx-bar-strong: #101828;
+    --ygx-bar-active: #101828;
+    --ygx-bar-head: #475467;
+    --ygx-bar-item: #475467;
+    --ygx-bar-link: #475467;
+    --ygx-bar-sub: #667085;
+    --ygx-bar-hover: #f4f6f8;
     --ygx-bar-hover-line: #cfd4dc;
-    --ygx-bar-thumb:      #cfd4dc;
-    --ygx-bar-off:        #b8c0cd;
-    --ygx-bar-acc-text:   #0f8f5f;
-    --ygx-bar-acc-wash:   rgba(22,160,106,.10);
-    --ygx-panel-bg:         rgba(255,255,255,.97);
-    --ygx-panel-line:       #e4e7ec;
-    --ygx-panel-head-line:  #eaecf0;
-    --ygx-panel-btn:        #f2f4f7;
-    --ygx-panel-btn-hover:  #e9ecf1;
+    --ygx-bar-thumb: #cfd4dc;
+    --ygx-bar-off: #b8c0cd;
+    --ygx-bar-acc-text: #0f8f5f;
+    --ygx-bar-acc-wash: rgba(22, 160, 106, 0.1);
+    --ygx-panel-bg: rgba(255, 255, 255, 0.97);
+    --ygx-panel-line: #e4e7ec;
+    --ygx-panel-head-line: #eaecf0;
+    --ygx-panel-btn: #f2f4f7;
+    --ygx-panel-btn-hover: #e9ecf1;
     --ygx-panel-icon-hover: #f2f4f7;
-    --ygx-panel-note:       #98a2b3;
-    --ygx-panel-off:        #98a2b3;
-    --ygx-panel-shadow:     rgba(16,24,40,.18);
+    --ygx-panel-note: #98a2b3;
+    --ygx-panel-off: #98a2b3;
+    --ygx-panel-shadow: rgba(16, 24, 40, 0.18);
   }
   /* A white logo on a white bar, so it has to flip here and only here. */
-  [data-ygx-theme="light"][data-ygx-on] .header__logo img { filter: invert(1); }
+  [data-ygx-theme="light"][data-ygx-on] .header__logo img {
+    filter: invert(1);
+  }
   /* Yupoo's own icons are already dark, so the dark theme's flip comes off. */
   [data-ygx-theme="light"][data-ygx-on] .search__searchIcon,
   [data-ygx-theme="light"][data-ygx-on] .showheader__category_collapse,
   [data-ygx-theme="light"][data-ygx-on] .socialshare__shareIcon img,
-  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination-button { filter: none; }
+  [data-ygx-theme="light"][data-ygx-on] .categories__box-right-pagination-button {
+    filter: none;
+  }
 
   [data-ygx-theme="light"] .ygx-root {
-    --ygx-card:    #ffffff;
+    --ygx-card: #ffffff;
     --ygx-card-hi: #ffffff;
-    --ygx-line:    #e4e7ec;
+    --ygx-line: #e4e7ec;
     --ygx-line-hi: #cfd4dc;
-    --ygx-text:    #1c2024;
-    --ygx-muted:   #667085;
-    --ygx-accent:      #0f8f5f;
-    --ygx-accent-bg:   #16a06a;
-    --ygx-on-accent:   #ffffff;
-    --ygx-accent-wash: rgba(22,160,106,.07);
-    --ygx-shot:        #f2f4f7;
-    --ygx-badge:       rgba(255,255,255,.92);
-    --ygx-badge-text:  #344054;
-    --ygx-shadow:      0 12px 28px rgba(16,24,40,.14);
+    --ygx-text: #1c2024;
+    --ygx-muted: #667085;
+    --ygx-accent: #0f8f5f;
+    --ygx-accent-bg: #16a06a;
+    --ygx-on-accent: #ffffff;
+    --ygx-accent-wash: rgba(22, 160, 106, 0.07);
+    --ygx-shot: #f2f4f7;
+    --ygx-badge: rgba(255, 255, 255, 0.92);
+    --ygx-badge-text: #344054;
+    --ygx-shadow: 0 12px 28px rgba(16, 24, 40, 0.14);
   }
 
   /* The sidebar toggle's icon is a background image, so its colours are
-     pre-inverted in the dark rules and cannot be read from a token. */
+      pre-inverted in the dark rules and cannot be read from a token. */
   [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-hide-sidebar,
   [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-show-sidebar {
-    filter: none; background-color: #fff !important; border-color: #e4e7ec !important;
+    filter: none;
+    background-color: #fff !important;
+    border-color: #e4e7ec !important;
   }
   [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-hide-sidebar:hover,
   [data-ygx-theme="light"][data-ygx-on] .yupoo-categories-show-sidebar:hover {
-    background-color: #f4f6f8 !important; border-color: #cfd4dc !important;
+    background-color: #f4f6f8 !important;
+    border-color: #cfd4dc !important;
   }
 
   /* The only panel colour that is not a token: its dim is a step darker than
-     --ygx-bar-dim, which the rest of the light chrome uses. */
-  [data-ygx-theme="light"] .ygx-toggle { color: #475467; }
+      --ygx-bar-dim, which the rest of the light chrome uses. */
+  [data-ygx-theme="light"] .ygx-toggle {
+    color: #475467;
+  }
 
   /* ---- Motion ----------------------------------------------------------- */
 
   @media (prefers-reduced-motion: reduce) {
-    .ygx-root *, .ygx-panel * { transition: none !important; animation: none !important; }
-    .ygx-card:hover { transform: none; }
-    .ygx-card:hover .ygx-img { transform: none; }
+    .ygx-root *,
+    .ygx-panel * {
+      transition: none !important;
+      animation: none !important;
+    }
+    .ygx-card:hover {
+      transform: none;
+    }
+    .ygx-card:hover .ygx-img {
+      transform: none;
+    }
   }
   `;
 
