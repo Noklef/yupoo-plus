@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Yupoo Gallery UI+
+// @name         Yupoo+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.11.3
+// @version      2.11.4
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
@@ -832,7 +832,7 @@
     panel.classList.toggle('is-collapsed', state.collapsed);
 
     const head = el('div', 'ygx-panel-head');
-    head.appendChild(el('span', 'ygx-panel-title', 'Gallery UI+'));
+    head.appendChild(el('span', 'ygx-panel-title', 'Yupoo+'));
     const collapse = el('button', 'ygx-icon-btn', state.collapsed ? '+' : '−');
     collapse.title = 'Collapse';
     collapse.addEventListener('click', () => {
@@ -918,6 +918,16 @@
     toggle.addEventListener('click', () => setEnabled(!state.enabled));
     bodyEl.appendChild(toggle);
 
+    // Credit line, outside every block .is-disabled dims, so it survives a
+    // restore. The anchor opens in a new tab rather than off the shop page.
+    const credit = el('div', 'ygx-credit', 'Created by ');
+    const creditLink = el('a', 'ygx-credit-link', 'Noklef');
+    creditLink.href = 'https://github.com/Noklef/yupoo-plus';
+    creditLink.target = '_blank';
+    creditLink.rel = 'noopener noreferrer';
+    credit.appendChild(creditLink);
+    bodyEl.appendChild(credit);
+
     panel.appendChild(bodyEl);
     document.body.appendChild(panel);
     syncPanel();
@@ -933,7 +943,7 @@
     });
     const t = panel.querySelector('#ygx-toggle');
     if (t) {
-      t.textContent = state.enabled ? 'Restore original layout' : 'Enable Gallery UI+';
+      t.textContent = state.enabled ? 'Restore original layout' : 'Enable Yupoo+';
       t.classList.toggle('is-off', !state.enabled);
     }
     // A class, not inline styles: the dim value belongs in the stylesheet, and
@@ -1989,6 +1999,17 @@
   }
   .ygx-toggle:hover { background: var(--ygx-panel-btn-hover); color: var(--ygx-bar-strong); }
   .ygx-toggle.is-off { background: var(--ygx-bar-acc); color: var(--ygx-bar-on); border-color: transparent; }
+  /* Yupoo styles anchors green and underlined, so the credit link needs the
+     same across-every-state armour the panel's buttons have. */
+  .ygx-credit { margin-top: -2px; text-align: center; font-size: 10.5px; color: var(--ygx-panel-note); }
+  .ygx-panel .ygx-credit-link,
+  .ygx-panel .ygx-credit-link:hover,
+  .ygx-panel .ygx-credit-link:focus,
+  .ygx-panel .ygx-credit-link:active,
+  .ygx-panel .ygx-credit-link:visited {
+    color: var(--ygx-bar-acc) !important; font-weight: 600 !important; text-decoration: none !important;
+  }
+  .ygx-panel .ygx-credit-link:hover { text-decoration: underline !important; }
 
   /* ---- Light theme (default): two token blocks and five exceptions ------ */
 
