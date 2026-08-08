@@ -1,8 +1,15 @@
 // ==UserScript==
 // @name         Yupoo+
 // @namespace    yupoo-gallery-ui-plus
-// @version      2.11.4
+// @version      2.11.5
 // @description  Rebuilds Yupoo album grids with 5 switchable card designs. Section-aware, full-page light/dark theme, price badge, lazy loading, density control, endless scroll.
+// @author       Noklef
+// @license      MIT
+// @homepageURL  https://github.com/Noklef/yupoo-plus
+// @supportURL   https://github.com/Noklef/yupoo-plus/issues
+// @downloadURL  https://raw.githubusercontent.com/Noklef/yupoo-plus/main/src/yupoo-gallery-ui.user.js
+// @updateURL    https://raw.githubusercontent.com/Noklef/yupoo-plus/main/src/yupoo-gallery-ui.user.js
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=yupoo.com
 // @match        *://*.yupoo.com/*
 // @exclude      *://photo.yupoo.com/*
 // @grant        GM_addStyle

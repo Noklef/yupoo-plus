@@ -1,6 +1,6 @@
 {
   "name": "yupoo-plus",
-  "version": "2.11.4",
+  "version": "2.11.5",
   "private": true,
   "description": "Tampermonkey userscript that rebuilds Yupoo album grids with switchable card designs",
   "scripts": {
