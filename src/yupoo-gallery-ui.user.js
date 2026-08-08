@@ -739,8 +739,9 @@
       media.appendChild(
         el("span", "ygx-price-float", PRICE_SYMBOL + item.price),
       );
-    // In the media area, mirroring the price pill: Dense hides .ygx-body
-    // entirely until hover, so the body is not a place a control can live.
+    // Both in the media area: Dense, Masonry and Showcase overlay or hide
+    // .ygx-body, so nothing that must always show can live in it.
+    if (item.shop) media.appendChild(el("span", "ygx-shop", item.shop));
     if (item.key) media.appendChild(favButton(item));
     media.appendChild(el("span", "ygx-scrim"));
 
@@ -754,8 +755,6 @@
       meta.appendChild(el("span", "ygx-price", PRICE_SYMBOL + item.price));
     if (item.count)
       meta.appendChild(el("span", "ygx-chip", item.count + " photos"));
-    // Only set on a favorite saved from another shop, so it never shows here.
-    if (item.shop) meta.appendChild(el("span", "ygx-shop", item.shop));
     if (meta.children.length) body.appendChild(meta);
 
     a.appendChild(media);
@@ -2516,6 +2515,12 @@
     background: var(--ygx-badge);
     z-index: 3;
   }
+  /* Editorial and Info card show the body under the image, where .ygx-chip
+      already says "N photos". The badge would be the same number twice. */
+  .ygx-grid[data-design="editorial"] .ygx-count,
+  .ygx-grid[data-design="info"] .ygx-count {
+    display: none;
+  }
   .ygx-price-float {
     position: absolute;
     left: 8px;
@@ -2647,18 +2652,24 @@
     outline-offset: 2px;
   }
 
+  /* Top left, the one corner free in four of the five designs. The badge plate
+      is the count's, so the two read as the same class of label. */
   .ygx-shop {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    max-width: calc(100% - 16px);
+    padding: 2px 7px;
+    border-radius: 999px;
     font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
     color: var(--ygx-accent);
-    background: var(--ygx-accent-wash);
-    border: 1px solid var(--ygx-line);
-    border-radius: 6px;
-    padding: 2px 6px;
-    margin-left: auto;
-    max-width: 45%;
+    background: var(--ygx-badge);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    z-index: 3;
   }
 
   /* One layer below the panel, so the design, theme and Card size controls stay
@@ -2926,6 +2937,10 @@
   .ygx-grid[data-design="editorial"] .ygx-price {
     display: none;
   }
+  /* Clears the price pill, which owns the top left corner in this design. */
+  .ygx-grid[data-design="editorial"] .ygx-shop {
+    top: 42px;
+  }
   .ygx-grid[data-design="editorial"] .ygx-card {
     border-radius: 16px;
   }
@@ -3094,9 +3109,10 @@
     border-color: rgba(255, 255, 255, 0.18);
     color: #dfe5f0;
   }
+  /* Left of the heart, which owns the top right corner in every design. */
   .ygx-grid[data-design="showcase"] .ygx-count {
-    top: 10px;
-    right: 10px;
+    top: 14px;
+    right: 46px;
     bottom: auto;
   }
   .ygx-grid[data-design="showcase"] .ygx-card:hover .ygx-img {
