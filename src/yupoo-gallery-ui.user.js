@@ -20,75 +20,128 @@
 // ==/UserScript==
 
 (function () {
-  'use strict';
+  "use strict";
 
   /* ---- 0. Config ------------------------------------------------------- */
 
   const DESIGNS = [
-    { id: 'editorial', label: 'Editorial', min: 260, hint: 'Big 4:5 image, floating price pill, 2-line title.' },
-    { id: 'dense',     label: 'Dense',     min: 150, hint: 'Square tiles, many per row, title on hover.' },
-    { id: 'info',      label: 'Info card', min: 230, hint: 'Image + meta row + persistent thumbnail strip.' },
-    { id: 'masonry',   label: 'Masonry',   min: 250, hint: 'Native aspect ratios in columns, caption scrim.' },
-    { id: 'showcase',  label: 'Showcase',  min: 320, hint: 'Large cards, hover cycles through album photos.' }
+    {
+      id: "editorial",
+      label: "Editorial",
+      min: 260,
+      hint: "Big 4:5 image, floating price pill, 2-line title.",
+    },
+    {
+      id: "dense",
+      label: "Dense",
+      min: 150,
+      hint: "Square tiles, many per row, title on hover.",
+    },
+    {
+      id: "info",
+      label: "Info card",
+      min: 230,
+      hint: "Image + meta row + persistent thumbnail strip.",
+    },
+    {
+      id: "masonry",
+      label: "Masonry",
+      min: 250,
+      hint: "Native aspect ratios in columns, caption scrim.",
+    },
+    {
+      id: "showcase",
+      label: "Showcase",
+      min: 320,
+      hint: "Large cards, hover cycles through album photos.",
+    },
   ];
 
   const DEFAULTS = {
-    design: 'editorial', density: 1, enabled: true, widen: true,
-    theme: 'light', endless: false, collapsed: false
+    design: "editorial",
+    density: 1,
+    enabled: true,
+    widen: true,
+    theme: "light",
+    endless: false,
+    collapsed: false,
   };
 
   // Live, not a snapshot: cards outlive the query, so the hover cycle reads it
   // each time rather than baking the boot-time answer in.
-  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   // Shelved, not removed: it loads and dedupes correctly but crashes long
   // sessions. Flip to true to pick it back up; nothing else needs changing.
   const ENDLESS_READY = false;
-  const THEMES = [{ id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }];
+  const THEMES = [
+    { id: "light", label: "Light" },
+    { id: "dark", label: "Dark" },
+  ];
 
   /* ---- 1. Storage (GM_* with localStorage fallback) -------------------- */
 
   const store = {
     get(k, d) {
-      try { if (typeof GM_getValue === 'function') return GM_getValue(k, d); } catch { /* noop */ }
       try {
-        const v = localStorage.getItem('ygx:' + k);
+        if (typeof GM_getValue === "function") return GM_getValue(k, d);
+      } catch {
+        /* noop */
+      }
+      try {
+        const v = localStorage.getItem("ygx:" + k);
         return v === null ? d : JSON.parse(v);
-      } catch { return d; }
+      } catch {
+        return d;
+      }
     },
     set(k, v) {
-      try { if (typeof GM_setValue === 'function') { GM_setValue(k, v); return; } } catch { /* noop */ }
-      try { localStorage.setItem('ygx:' + k, JSON.stringify(v)); } catch { /* noop */ }
-    }
+      try {
+        if (typeof GM_setValue === "function") {
+          GM_setValue(k, v);
+          return;
+        }
+      } catch {
+        /* noop */
+      }
+      try {
+        localStorage.setItem("ygx:" + k, JSON.stringify(v));
+      } catch {
+        /* noop */
+      }
+    },
   };
 
   const state = {
-    design: store.get('design', DEFAULTS.design),
-    density: Number(store.get('density', DEFAULTS.density)) || 1,
-    enabled: store.get('enabled', DEFAULTS.enabled) !== false,
-    widen: store.get('widen', DEFAULTS.widen) !== false,
-    theme: store.get('theme', DEFAULTS.theme),
-    collapsed: store.get('collapsed', DEFAULTS.collapsed) === true,
+    design: store.get("design", DEFAULTS.design),
+    density: Number(store.get("density", DEFAULTS.density)) || 1,
+    enabled: store.get("enabled", DEFAULTS.enabled) !== false,
+    widen: store.get("widen", DEFAULTS.widen) !== false,
+    theme: store.get("theme", DEFAULTS.theme),
+    collapsed: store.get("collapsed", DEFAULTS.collapsed) === true,
     // Forced off while shelved, so a previously saved true does not revive it.
-    endless: ENDLESS_READY && store.get('endless', DEFAULTS.endless) === true
+    endless: ENDLESS_READY && store.get("endless", DEFAULTS.endless) === true,
   };
-  if (!DESIGNS.some(d => d.id === state.design)) state.design = DEFAULTS.design;
-  if (!THEMES.some(t => t.id === state.theme)) state.theme = DEFAULTS.theme;
+  if (!DESIGNS.some((d) => d.id === state.design))
+    state.design = DEFAULTS.design;
+  if (!THEMES.some((t) => t.id === state.theme)) state.theme = DEFAULTS.theme;
 
   /* ---- 2. Scraping ----------------------------------------------------- */
 
   // Yupoo's three templates and their DOM shapes are mapped in CLAUDE.md.
   // Older album__main / album__title markup and unknown templates fall back.
 
-  const CARD_SEL = 'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
+  const CARD_SEL =
+    'a.album3__main, a.album__main, a[data-album-id], a[href*="/albums/"]';
   // Never scraped: our own cards, the pager, and Yupoo's photo viewer, which
   // holds a live /albums/<id> link and a thumbnail strip once a photo is open.
-  const SKIP_SEL = '.ygx-root, .pagination__main, .viewer__main';
+  const SKIP_SEL = ".ygx-root, .pagination__main, .viewer__main";
   const ALBUM_HREF = /\/albums\/(\d+)/;
   const COLLECTION_HREF = /\/collections\/(\d+)/;
   const CATEGORY_HREF = /\/categories\/(\d+)/;
   // Yupoo's own "not loaded yet" graphics, which must never be cached as a cover.
-  const BAD_IMG = /(blank|placeholder|loading|spacer|1x1|nopic|no_pic|default_|\.svg($|\?)|^data:)/i;
+  const BAD_IMG =
+    /(blank|placeholder|loading|spacer|1x1|nopic|no_pic|default_|\.svg($|\?)|^data:)/i;
   // A usable photo is one served by Yupoo's CDN, or at least a real raster file.
   const GOOD_IMG = /(photo\.yupoo\.com|\.(jpe?g|png|webp|gif)($|\?))/i;
   // A real .png on a real CDN, so GOOD_IMG accepts it and BAD_IMG misses it.
@@ -96,22 +149,34 @@
 
   // Lazy-load attributes first: `src` is often a 1x1 data: URI, and Yupoo's
   // /square variant only ever appears there.
-  const IMG_ATTRS = ['data-origin-src', 'data-original', 'data-src', 'data-lazy', 'src'];
+  const IMG_ATTRS = [
+    "data-origin-src",
+    "data-original",
+    "data-src",
+    "data-lazy",
+    "src",
+  ];
 
   // Read by readCount and stripped by readTitle's fallback, which would
   // otherwise hand the photo count to parsePrice as a candidate number.
-  const COUNT_SEL = '.album__photonumber, [class*="photonumber"], [class*="imgnum"]';
+  const COUNT_SEL =
+    '.album__photonumber, [class*="photonumber"], [class*="imgnum"]';
 
   function isRealPhoto(u) {
-    return !!u && !BAD_IMG.test(u) && !PLACEHOLDER_IMG.test(u) && GOOD_IMG.test(u);
+    return (
+      !!u && !BAD_IMG.test(u) && !PLACEHOLDER_IMG.test(u) && GOOD_IMG.test(u)
+    );
   }
 
   // Flagged rather than dropped: the card still has a title and price. The zero
   // count stops a real cover that matches the filename reading as empty.
   function isEmptyAlbum(card, count) {
     if (count !== 0) return false;
-    return Array.from(card.querySelectorAll('img')).some(n =>
-      IMG_ATTRS.some(attr => PLACEHOLDER_IMG.test(n.getAttribute(attr) || '')));
+    return Array.from(card.querySelectorAll("img")).some((n) =>
+      IMG_ATTRS.some((attr) =>
+        PLACEHOLDER_IMG.test(n.getAttribute(attr) || ""),
+      ),
+    );
   }
 
   /* ---- Price formats: add here, nothing else needs touching ------------- */
@@ -119,36 +184,46 @@
   // Each `src` captures the bare number in group 1; tried in order, first wins.
   // NUM takes 1,299 / 299 / 299.50; NUM2 needs 2+ digits so "Y2K" is not a price.
 
-  const NUM  = '((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)';
-  const NUM2 = '((?:\\d{1,3}(?:,\\d{3})+|\\d{2,})(?:\\.\\d+)?)';
-  const NOTW = '(?<![A-Za-z0-9])';   // left word boundary, letters included
-  const NOTW_R = '(?![A-Za-z0-9])';  // right word boundary
+  const NUM = "((?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)";
+  const NUM2 = "((?:\\d{1,3}(?:,\\d{3})+|\\d{2,})(?:\\.\\d+)?)";
+  const NOTW = "(?<![A-Za-z0-9])"; // left word boundary, letters included
+  const NOTW_R = "(?![A-Za-z0-9])"; // right word boundary
   // Lookbehind-free stand-in. It consumes the boundary character, so the match
   // runs one char wide, which the title's leading-punctuation strip absorbs.
-  const NOTW_ALT = '(?:^|[^A-Za-z0-9])';
+  const NOTW_ALT = "(?:^|[^A-Za-z0-9])";
 
-  const PRICE_SYMBOL = '¥';   // what gets rendered on the card, whatever was matched
+  const PRICE_SYMBOL = "¥"; // what gets rendered on the card, whatever was matched
 
   const PRICE_PATTERNS = [
-    { name: '¥259',     src: '[¥￥]\\s*' + NUM },
-    { name: '259¥',     src: NUM + '\\s*[¥￥]' },
-    { name: '259Y',     src: NOTW + NUM2 + '\\s*[Yy]' + NOTW_R,
-                        alt: NOTW_ALT + NUM2 + '\\s*[Yy]' + NOTW_R },
-    { name: 'Y259',     src: NOTW + '[Yy]\\s*' + NUM2,
-                        alt: NOTW_ALT + '[Yy]\\s*' + NUM2 },
-    { name: '259元',    src: NUM + '\\s*元' },
-    { name: '259RMB',   src: NUM + '\\s*(?:RMB|CNY)' + NOTW_R },
-    { name: 'RMB259',   src: '(?:RMB|CNY)\\s*' + NUM }
+    { name: "¥259", src: "[¥￥]\\s*" + NUM },
+    { name: "259¥", src: NUM + "\\s*[¥￥]" },
+    {
+      name: "259Y",
+      src: NOTW + NUM2 + "\\s*[Yy]" + NOTW_R,
+      alt: NOTW_ALT + NUM2 + "\\s*[Yy]" + NOTW_R,
+    },
+    {
+      name: "Y259",
+      src: NOTW + "[Yy]\\s*" + NUM2,
+      alt: NOTW_ALT + "[Yy]\\s*" + NUM2,
+    },
+    { name: "259元", src: NUM + "\\s*元" },
+    { name: "259RMB", src: NUM + "\\s*(?:RMB|CNY)" + NOTW_R },
+    { name: "RMB259", src: "(?:RMB|CNY)\\s*" + NUM },
   ];
 
   // Compiled defensively: lookbehind is unsupported on some older engines, and
   // an uncompilable literal would take the whole userscript down at parse time.
   // A pattern that will not compile falls back to its `alt`, so the format
   // degrades to looser matching instead of disappearing.
-  const PRICE_RES = PRICE_PATTERNS.map(p => {
+  const PRICE_RES = PRICE_PATTERNS.map((p) => {
     for (const src of [p.src, p.alt]) {
       if (!src) continue;
-      try { return { name: p.name, re: new RegExp(src) }; } catch { /* try alt */ }
+      try {
+        return { name: p.name, re: new RegExp(src) };
+      } catch {
+        /* try alt */
+      }
     }
     return null;
   }).filter(Boolean);
@@ -158,17 +233,18 @@
     if (!text) return null;
     for (const p of PRICE_RES) {
       const m = text.match(p.re);
-      if (m && m[1]) return { value: m[1].replace(/,/g, ''), matched: m[0], format: p.name };
+      if (m && m[1])
+        return { value: m[1].replace(/,/g, ""), matched: m[0], format: p.name };
     }
     return null;
   }
 
   function absUrl(u) {
-    if (!u) return '';
+    if (!u) return "";
     u = u.trim();
-    if (!u) return '';
-    if (u.startsWith('//')) return location.protocol + u;
-    if (u.startsWith('/')) return location.origin + u;
+    if (!u) return "";
+    if (u.startsWith("//")) return location.protocol + u;
+    if (u.startsWith("/")) return location.origin + u;
     return u;
   }
 
@@ -179,11 +255,11 @@
   // Everything is pinned to /small at scrape time, so nothing downstream picks.
   function sized(url, want) {
     if (!url) return url;
-    return url.replace(SIZE_RE, '/' + want + '$2$3');
+    return url.replace(SIZE_RE, "/" + want + "$2$3");
   }
 
   function urlFromNode(node) {
-    if (!node || !node.getAttribute) return '';
+    if (!node || !node.getAttribute) return "";
     // data-origin-src is frequently present but empty — absUrl('') filters it.
     for (const a of IMG_ATTRS) {
       const v = absUrl(node.getAttribute(a));
@@ -194,7 +270,7 @@
       const m = bg.match(/url\(["']?(.*?)["']?\)/);
       if (m && m[1] && !BAD_IMG.test(m[1])) return absUrl(m[1]);
     }
-    return '';
+    return "";
   }
 
   function readImages(card) {
@@ -202,7 +278,7 @@
     const seen = new Set();
     // Dedupe on the photo, not the URL: cover and first thumbnail are one
     // picture at two sizes, so raw URLs render a 1-photo album twice.
-    const key = (u) => sized(u, '*');
+    const key = (u) => sized(u, "*");
     const push = (u) => {
       if (!isRealPhoto(u)) return;
       const k = key(u);
@@ -210,49 +286,58 @@
       seen.add(k);
       // Normalised here rather than at use: /small is 500x500, comfortably over
       // any card we render, so no design or hover state needs a bigger variant.
-      out.push(sized(u, 'small'));
+      out.push(sized(u, "small"));
     };
 
     // Below the fold .album__img is still a placeholder and our hidden grid
     // means it never fills in, so take the cover only when it is a real photo.
-    const cover = card.querySelector('.album__imgwrap img, .album__img');
-    push(cover ? urlFromNode(cover) : '');
+    const cover = card.querySelector(".album__imgwrap img, .album__img");
+    push(cover ? urlFromNode(cover) : "");
 
-    card.querySelectorAll('.album3__photoswrap img, .album3__img, .album__othersimg')
-      .forEach(im => push(urlFromNode(im)));
+    card
+      .querySelectorAll(
+        ".album3__photoswrap img, .album3__img, .album__othersimg",
+      )
+      .forEach((im) => push(urlFromNode(im)));
 
     if (out.length) return out;
 
     // Generic fallback for unknown templates: every image-ish node in DOM order,
     // skipping the loading skeleton.
-    card.querySelectorAll('img, [data-src], [data-origin-src], [style*="background-image"]')
-      .forEach(n => {
-        if (n.closest('.album3__loading')) return;
+    card
+      .querySelectorAll(
+        'img, [data-src], [data-origin-src], [style*="background-image"]',
+      )
+      .forEach((n) => {
+        if (n.closest(".album3__loading")) return;
         push(urlFromNode(n));
       });
     return out;
   }
 
   function readTitle(card) {
-    const t = card.getAttribute('title');
-    if (t && t.trim()) return t.trim().replace(/\s+/g, ' ');
-    const node = card.querySelector('.album3__title, .album__title, [class*="title"]');
+    const t = card.getAttribute("title");
+    if (t && t.trim()) return t.trim().replace(/\s+/g, " ");
+    const node = card.querySelector(
+      '.album3__title, .album__title, [class*="title"]',
+    );
     if (node) {
-      const v = (node.getAttribute('title') || node.textContent || '').trim();
-      if (v) return v.replace(/\s+/g, ' ');
+      const v = (node.getAttribute("title") || node.textContent || "").trim();
+      if (v) return v.replace(/\s+/g, " ");
     }
     // Last resort on unknown templates. The badges come off first, or the photo
     // count lands in the title and parsePrice reads its digits as a price.
     const clone = card.cloneNode(true);
-    clone.querySelectorAll(COUNT_SEL + ', .album3__loading, .album3__showmore')
-      .forEach(n => n.remove());
-    return (clone.textContent || '').trim().replace(/\s+/g, ' ');
+    clone
+      .querySelectorAll(COUNT_SEL + ", .album3__loading, .album3__showmore")
+      .forEach((n) => n.remove());
+    return (clone.textContent || "").trim().replace(/\s+/g, " ");
   }
 
   function readCount(card) {
     const node = card.querySelector(COUNT_SEL);
     if (node) {
-      const m = (node.textContent || '').match(/\d+/);
+      const m = (node.textContent || "").match(/\d+/);
       if (m) return Number(m[0]);
     }
     return 0;
@@ -262,7 +347,9 @@
   function cardRootFor(anchor, anchors) {
     // .categories__children is the /categories listing; .showindex__children
     // is the album grid and the category_commerce home page.
-    const known = anchor.closest('.showindex__children, .categories__children, li.album, .album__main');
+    const known = anchor.closest(
+      ".showindex__children, .categories__children, li.album, .album__main",
+    );
     if (known && known !== anchor) return known;
     let node = anchor;
     let best = anchor;
@@ -271,7 +358,7 @@
       if (node === document.body) break;
       // Containment against the anchors already in hand. A querySelectorAll per
       // ancestor re-scans the whole grid, which is quadratic in the card count.
-      if (anchors.some(o => o !== anchor && node.contains(o))) break;
+      if (anchors.some((o) => o !== anchor && node.contains(o))) break;
       best = node;
     }
     return best;
@@ -281,34 +368,42 @@
   function scrapeGroups() {
     // Filtered up front rather than skipped in the loop: cardRootFor tests
     // containment against this list and must not count our own cards.
-    const anchors = Array.from(document.querySelectorAll(CARD_SEL))
-      .filter(a => !a.closest(SKIP_SEL));
+    const anchors = Array.from(document.querySelectorAll(CARD_SEL)).filter(
+      (a) => !a.closest(SKIP_SEL),
+    );
     const groups = new Map();
 
     for (const a of anchors) {
-      const href = a.getAttribute('href') || '';
+      const href = a.getAttribute("href") || "";
       // Href plus marker node, so a plain collection link elsewhere on the page
       // isn't mistaken for a "more" tile.
-      const showmore = COLLECTION_HREF.test(href) ? a.querySelector('.album3__showmore') : null;
+      const showmore = COLLECTION_HREF.test(href)
+        ? a.querySelector(".album3__showmore")
+        : null;
       if (!showmore && !ALBUM_HREF.test(href)) continue;
 
       const card = cardRootFor(a, anchors);
       const grid = card.parentElement;
       if (!grid || grid === document.body) continue;
 
-      const base = { href: a.href, target: a.getAttribute('target') || '' };
+      const base = { href: a.href, target: a.getAttribute("target") || "" };
       let item;
 
       if (showmore) {
         // <p class="album3__more">more</p><p>1298 items</p>
-        const ps = showmore.querySelectorAll('p');
+        const ps = showmore.querySelectorAll("p");
         item = Object.assign(base, {
           more: true,
-          title: (showmore.querySelector('.album3__more') || ps[0] || {}).textContent || 'More',
-          note: ps.length > 1 ? (ps[ps.length - 1].textContent || '').trim() : '',
-          images: [], price: '', count: ''
+          title:
+            (showmore.querySelector(".album3__more") || ps[0] || {})
+              .textContent || "More",
+          note:
+            ps.length > 1 ? (ps[ps.length - 1].textContent || "").trim() : "",
+          images: [],
+          price: "",
+          count: "",
         });
-        item.title = item.title.trim() || 'More';
+        item.title = item.title.trim() || "More";
       } else {
         const count = readCount(card);
         const images = readImages(card);
@@ -322,12 +417,13 @@
         item = Object.assign(base, {
           empty,
           // Only the price is parsed out; the rest of the string stays verbatim.
-          price: pm ? pm.value : '',
-          title: (pm ? rawTitle.replace(pm.matched, '') : rawTitle)
-            .replace(/^[\s\-–—:|,]+/, '')
-            .replace(/\s+/g, ' ').trim(),
+          price: pm ? pm.value : "",
+          title: (pm ? rawTitle.replace(pm.matched, "") : rawTitle)
+            .replace(/^[\s\-–—:|,]+/, "")
+            .replace(/\s+/g, " ")
+            .trim(),
           images,
-          count: count > 1 ? String(count) : ''
+          count: count > 1 ? String(count) : "",
         });
       }
 
@@ -342,28 +438,33 @@
 
   /* ---- 3. Rendering ---------------------------------------------------- */
 
-  const mounted = new Map();   // original grid element -> { root, gridEl, keys }
+  const mounted = new Map(); // original grid element -> { root, gridEl, keys }
   let io = null;
-  let lastSignature = '';
-  let mountedDesign = '';
+  let lastSignature = "";
+  let mountedDesign = "";
   // Module scope, because only one card can be hovered at a time and a per-card
   // interval outlives its card: a removed node never fires mouseleave.
   let cycleTimer = null;
 
   function lazyObserver() {
     if (io) return io;
-    io = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue;
-        const img = e.target;
-        if (img.dataset.ygxSrc) {
-          img.src = img.dataset.ygxSrc;
-          delete img.dataset.ygxSrc;
+    io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const img = e.target;
+          if (img.dataset.ygxSrc) {
+            img.src = img.dataset.ygxSrc;
+            delete img.dataset.ygxSrc;
+          }
+          img.addEventListener("load", () => img.classList.add("is-loaded"), {
+            once: true,
+          });
+          io.unobserve(img);
         }
-        img.addEventListener('load', () => img.classList.add('is-loaded'), { once: true });
-        io.unobserve(img);
-      }
-    }, { rootMargin: '600px 0px' });
+      },
+      { rootMargin: "600px 0px" },
+    );
     return io;
   }
 
@@ -385,11 +486,11 @@
 
   // Shared by the empty-album card and by an image whose fallbacks all 404.
   function emptyBox(label) {
-    const box = el('div', 'ygx-empty-box');
-    const icon = el('span', 'ygx-empty-icon');
+    const box = el("div", "ygx-empty-box");
+    const icon = el("span", "ygx-empty-icon");
     icon.innerHTML = EMPTY_ICON;
     box.appendChild(icon);
-    box.appendChild(el('span', 'ygx-empty-label', label));
+    box.appendChild(el("span", "ygx-empty-label", label));
     return box;
   }
 
@@ -399,34 +500,34 @@
   }
 
   function buildCard(item, design) {
-    const a = el('a', 'ygx-card');
+    const a = el("a", "ygx-card");
     a.href = item.href;
     if (item.target) a.target = item.target;
 
     // Content goes in the media area, since Dense hides .ygx-body until hover.
     if (item.more) {
-      a.classList.add('is-more');
-      const box = el('div', 'ygx-more-box');
-      box.appendChild(el('span', 'ygx-more-arrow', '→'));
-      box.appendChild(el('span', 'ygx-more-label', item.title));
-      if (item.note) box.appendChild(el('span', 'ygx-more-note', item.note));
-      const wrap = el('div', 'ygx-media');
+      a.classList.add("is-more");
+      const box = el("div", "ygx-more-box");
+      box.appendChild(el("span", "ygx-more-arrow", "→"));
+      box.appendChild(el("span", "ygx-more-label", item.title));
+      if (item.note) box.appendChild(el("span", "ygx-more-note", item.note));
+      const wrap = el("div", "ygx-media");
       wrap.appendChild(box);
       a.appendChild(wrap);
       return a;
     }
 
-    const media = el('div', 'ygx-media');
+    const media = el("div", "ygx-media");
     let img = null;
 
     if (item.empty) {
       // Media area again, so it survives the designs that hide the body.
-      a.classList.add('is-empty');
-      media.appendChild(emptyBox('No photos'));
+      a.classList.add("is-empty");
+      media.appendChild(emptyBox("No photos"));
     } else {
-      img = el('img', 'ygx-img');
+      img = el("img", "ygx-img");
       img.alt = item.title;
-      img.decoding = 'async';
+      img.decoding = "async";
 
       const first = item.images[0];
       img.dataset.ygxSrc = first;
@@ -436,40 +537,48 @@
       // no size fallback to make now that every URL is already /small.
       const chain = [first, item.images[1]].filter(Boolean);
       let step = 0;
-      img.addEventListener('error', () => {
-        if (++step < chain.length) { img.src = chain[step]; return; }
+      img.addEventListener("error", () => {
+        if (++step < chain.length) {
+          img.src = chain[step];
+          return;
+        }
         // .ygx-img only fades in on load, so an exhausted chain would leave an
         // invisible card. Fall back to the empty-album treatment instead.
         if (io) io.unobserve(img);
         img.remove();
-        a.classList.add('is-empty');
-        media.appendChild(emptyBox('Image unavailable'));
+        a.classList.add("is-empty");
+        media.appendChild(emptyBox("Image unavailable"));
       });
       media.appendChild(img);
       lazyObserver().observe(img);
     }
 
-    if (item.count) media.appendChild(el('span', 'ygx-count', item.count));
-    if (item.price) media.appendChild(el('span', 'ygx-price-float', PRICE_SYMBOL + item.price));
-    media.appendChild(el('span', 'ygx-scrim'));
+    if (item.count) media.appendChild(el("span", "ygx-count", item.count));
+    if (item.price)
+      media.appendChild(
+        el("span", "ygx-price-float", PRICE_SYMBOL + item.price),
+      );
+    media.appendChild(el("span", "ygx-scrim"));
 
-    const body = el('div', 'ygx-body');
-    const title = el('div', 'ygx-title', item.title || '—');
+    const body = el("div", "ygx-body");
+    const title = el("div", "ygx-title", item.title || "—");
     if (item.title) title.title = item.title;
     body.appendChild(title);
 
-    const meta = el('div', 'ygx-meta');
-    if (item.price) meta.appendChild(el('span', 'ygx-price', PRICE_SYMBOL + item.price));
-    if (item.count) meta.appendChild(el('span', 'ygx-chip', item.count + ' photos'));
+    const meta = el("div", "ygx-meta");
+    if (item.price)
+      meta.appendChild(el("span", "ygx-price", PRICE_SYMBOL + item.price));
+    if (item.count)
+      meta.appendChild(el("span", "ygx-chip", item.count + " photos"));
     if (meta.children.length) body.appendChild(meta);
 
     a.appendChild(media);
     a.appendChild(body);
 
-    if (design === 'info' && item.images.length > 1) {
-      const strip = el('div', 'ygx-strip');
-      item.images.slice(1, 5).forEach(u => {
-        const t = el('img', 'ygx-thumb');
+    if (design === "info" && item.images.length > 1) {
+      const strip = el("div", "ygx-strip");
+      item.images.slice(1, 5).forEach((u) => {
+        const t = el("img", "ygx-thumb");
         t.dataset.ygxSrc = u;
         lazyObserver().observe(t);
         strip.appendChild(t);
@@ -477,8 +586,8 @@
       a.appendChild(strip);
     }
 
-    if (design === 'showcase' && item.images.length > 1) {
-      a.addEventListener('mouseenter', () => {
+    if (design === "showcase" && item.images.length > 1) {
+      a.addEventListener("mouseenter", () => {
         if (REDUCED.matches) return;
         stopCycle();
         let i = 0;
@@ -487,7 +596,7 @@
           img.src = item.images[i];
         }, 900);
       });
-      a.addEventListener('mouseleave', () => {
+      a.addEventListener("mouseleave", () => {
         stopCycle();
         img.src = img.dataset.ygxFirst;
       });
@@ -501,29 +610,32 @@
     if (!m) return;
     stopCycle();
     m.root.remove();
-    grid.removeAttribute('data-ygx-hidden');
+    grid.removeAttribute("data-ygx-hidden");
     mounted.delete(grid);
   }
 
   function teardown() {
     Array.from(mounted.keys()).forEach(unmountGroup);
-    if (io) { io.disconnect(); io = null; }
+    if (io) {
+      io.disconnect();
+      io = null;
+    }
   }
 
   function mountGroup(grid, items) {
-    const root = el('div', 'ygx-root');
-    const gridEl = el('div', 'ygx-grid');
-    gridEl.setAttribute('data-design', state.design);
+    const root = el("div", "ygx-root");
+    const gridEl = el("div", "ygx-grid");
+    gridEl.setAttribute("data-design", state.design);
     const frag = document.createDocumentFragment();
-    items.forEach(it => frag.appendChild(buildCard(it, state.design)));
+    items.forEach((it) => frag.appendChild(buildCard(it, state.design)));
     gridEl.appendChild(frag);
     root.appendChild(gridEl);
 
     // Sit exactly where the original grid sits, so category headings,
     // pagination and the rest of the page keep their position.
     grid.parentElement.insertBefore(root, grid);
-    grid.setAttribute('data-ygx-hidden', '1');
-    mounted.set(grid, { root, gridEl, keys: items.map(i => i.href) });
+    grid.setAttribute("data-ygx-hidden", "1");
+    mounted.set(grid, { root, gridEl, keys: items.map((i) => i.href) });
   }
 
   // Same cards in the same order means the mounted DOM is still correct, and a
@@ -536,9 +648,11 @@
     }
     if (items.length > m.keys.length) {
       const frag = document.createDocumentFragment();
-      items.slice(m.keys.length).forEach(it => frag.appendChild(buildCard(it, state.design)));
+      items
+        .slice(m.keys.length)
+        .forEach((it) => frag.appendChild(buildCard(it, state.design)));
       m.gridEl.appendChild(frag);
-      m.keys = items.map(i => i.href);
+      m.keys = items.map((i) => i.href);
     }
     return true;
   }
@@ -548,12 +662,18 @@
     const groups = scrapeGroups();
     // Torn down before the early return: an empty scrape means the page changed
     // under us, not that the cards we mounted are still valid.
-    if (!groups.length) { teardown(); lastSignature = ''; return; }
+    if (!groups.length) {
+      teardown();
+      lastSignature = "";
+      return;
+    }
 
     const sig = signature(groups);
     // Liveness is part of the check. Yupoo can replace its grid with an
     // identical list, which leaves the signature equal and our roots detached.
-    const live = mounted.size > 0 && Array.from(mounted.keys()).every(g => g.isConnected);
+    const live =
+      mounted.size > 0 &&
+      Array.from(mounted.keys()).every((g) => g.isConnected);
     if (!force && sig === lastSignature && live) return;
 
     // buildCard bakes the design into each card, so a design change is the one
@@ -569,7 +689,9 @@
       mountGroup(grid, items);
     }
     // Sections the page no longer has.
-    Array.from(mounted.keys()).forEach(g => { if (!keep.has(g)) unmountGroup(g); });
+    Array.from(mounted.keys()).forEach((g) => {
+      if (!keep.has(g)) unmountGroup(g);
+    });
 
     mountedDesign = state.design;
     applyDensity();
@@ -582,8 +704,13 @@
   }
 
   function signature(groups) {
-    return state.design + '::' +
-      groups.map(g => g.items.length + ':' + g.items.map(i => i.href).join(',')).join('|');
+    return (
+      state.design +
+      "::" +
+      groups
+        .map((g) => g.items.length + ":" + g.items.map((i) => i.href).join(","))
+        .join("|")
+    );
   }
 
   /* ---- 3b. Endless scroll ---------------------------------------------- */
@@ -592,7 +719,7 @@
   // Cards graft into the hidden original markup, so teardown stays a real restore.
 
   const NEXT_SEL = 'nav.pagination__main a[title="next page"]';
-  const GRID_SEL = '.showindex__parent, .categories__parent';
+  const GRID_SEL = ".showindex__parent, .categories__parent";
 
   // Hard ceiling per page view. Every other guard depends on an event firing;
   // this one does not, so runaway loading stays bounded whatever else breaks.
@@ -601,36 +728,43 @@
   // url: null is "not looked up yet", '' is "no further pages". armed clears on
   // each load and returns on scroll, so a sentinel in view cannot self-chain.
   const endless = {
-    url: null, busy: false, armed: true, paused: false,
-    pages: 0, node: null, io: null, extra: null, seen: new Set()
+    url: null,
+    busy: false,
+    armed: true,
+    paused: false,
+    pages: 0,
+    node: null,
+    io: null,
+    extra: null,
+    seen: new Set(),
   };
 
   function nextPageUrl(doc) {
     const a = doc.querySelector(NEXT_SEL);
-    const href = a && a.getAttribute('href');
-    return href ? new URL(href, location.href).href : '';
+    const href = a && a.getAttribute("href");
+    return href ? new URL(href, location.href).href : "";
   }
 
   function albumId(node) {
     const a = node.querySelector(CARD_SEL) || node;
-    const m = (a.getAttribute('href') || '').match(ALBUM_HREF);
-    return m ? m[1] : '';
+    const m = (a.getAttribute("href") || "").match(ALBUM_HREF);
+    return m ? m[1] : "";
   }
 
   function endlessStatus(text) {
     if (!endless.node) return;
     endless.node.firstChild.textContent = text;
-    endless.node.classList.toggle('is-paused', endless.paused);
+    endless.node.classList.toggle("is-paused", endless.paused);
   }
 
   // Kept outside .ygx-root so render()'s teardown can't take it with it.
   function placeSentinel() {
     if (!state.endless || !state.enabled) return;
     if (!endless.node) {
-      endless.node = el('div', 'ygx-endless');
-      endless.node.appendChild(el('span', 'ygx-endless-text', ''));
+      endless.node = el("div", "ygx-endless");
+      endless.node.appendChild(el("span", "ygx-endless-text", ""));
       // Resuming from the page cap, so it only does anything while paused.
-      endless.node.addEventListener('click', () => {
+      endless.node.addEventListener("click", () => {
         if (!endless.paused) return;
         endless.paused = false;
         endless.pages = 0;
@@ -638,18 +772,23 @@
         loadNextPage();
       });
     }
-    const roots = document.querySelectorAll('.ygx-root');
+    const roots = document.querySelectorAll(".ygx-root");
     const last = roots[roots.length - 1];
     if (!last) return;
     // Anchor to the hidden grid, not the root: roots insert before their grid,
     // so the root's slot is where the next rebuild hoists it above the cards.
     let anchor = last;
-    mounted.forEach((m, grid) => { if (m.root === last) anchor = grid; });
+    mounted.forEach((m, grid) => {
+      if (m.root === last) anchor = grid;
+    });
     anchor.parentElement.insertBefore(endless.node, anchor.nextSibling);
     if (!endless.io) {
-      endless.io = new IntersectionObserver(es => {
-        if (endless.armed && es.some(e => e.isIntersecting)) loadNextPage();
-      }, { rootMargin: '400px 0px' });
+      endless.io = new IntersectionObserver(
+        (es) => {
+          if (endless.armed && es.some((e) => e.isIntersecting)) loadNextPage();
+        },
+        { rootMargin: "400px 0px" },
+      );
     }
     // Re-observing forces a fresh callback: staying in view is not a change, so
     // without this the second page never triggers a third.
@@ -658,33 +797,42 @@
   }
 
   async function loadNextPage() {
-    if (endless.busy || endless.paused || !endless.url || !state.endless || !state.enabled) return;
+    if (
+      endless.busy ||
+      endless.paused ||
+      !endless.url ||
+      !state.endless ||
+      !state.enabled
+    )
+      return;
     endless.busy = true;
     endless.armed = false;
-    endlessStatus('Loading more…');
+    endlessStatus("Loading more…");
 
     let doc;
     try {
       // Bounded: a hung request would otherwise pin busy=true with no retry.
       const res = await fetch(endless.url, {
-        credentials: 'same-origin',
-        signal: window.AbortSignal.timeout(15000)
+        credentials: "same-origin",
+        signal: window.AbortSignal.timeout(15000),
       });
       if (!res.ok) throw new Error(String(res.status));
-      doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+      doc = new DOMParser().parseFromString(await res.text(), "text/html");
     } catch {
       endless.busy = false;
-      endlessStatus('Could not load the next page. Scroll to retry.');
+      endlessStatus("Could not load the next page. Scroll to retry.");
       return;
     }
 
-    const live = Array.from(document.querySelectorAll(GRID_SEL)).filter(g => !g.closest('.ygx-root'));
+    const live = Array.from(document.querySelectorAll(GRID_SEL)).filter(
+      (g) => !g.closest(".ygx-root"),
+    );
     // One live grid means a flat list the next page continues. Several means
     // sections, so later pages share a container instead of the last heading.
     let target = live.length === 1 ? live[0] : endless.extra;
 
     for (const g of Array.from(doc.querySelectorAll(GRID_SEL))) {
-      const kids = Array.from(g.children).filter(k => {
+      const kids = Array.from(g.children).filter((k) => {
         const id = albumId(k);
         if (id && endless.seen.has(id)) return false;
         if (id) endless.seen.add(id);
@@ -698,7 +846,7 @@
         const last = live[live.length - 1];
         last.parentElement.insertBefore(target, last.nextSibling);
       }
-      kids.forEach(k => target.appendChild(document.adoptNode(k)));
+      kids.forEach((k) => target.appendChild(document.adoptNode(k)));
     }
 
     endless.url = nextPageUrl(doc);
@@ -707,28 +855,37 @@
     endless.paused = endless.pages >= MAX_PAGES && !!endless.url;
     // render() reconciles, so an appended page only builds the cards it added.
     render(false);
-    if (endless.paused) endlessStatus('Paused after ' + endless.pages + ' pages. Click to load more.');
-    else endlessStatus(endless.url ? '' : 'End of results');
+    if (endless.paused)
+      endlessStatus(
+        "Paused after " + endless.pages + " pages. Click to load more.",
+      );
+    else endlessStatus(endless.url ? "" : "End of results");
   }
 
   function startEndless() {
     if (!state.endless || !state.enabled) return;
     if (!endless.seen.size) {
-      document.querySelectorAll(CARD_SEL).forEach(a => {
+      document.querySelectorAll(CARD_SEL).forEach((a) => {
         if (a.closest(SKIP_SEL)) return;
-        const m = (a.getAttribute('href') || '').match(ALBUM_HREF);
+        const m = (a.getAttribute("href") || "").match(ALBUM_HREF);
         if (m) endless.seen.add(m[1]);
       });
     }
     if (endless.url === null) endless.url = nextPageUrl(document);
     endless.armed = true;
     placeSentinel();
-    endlessStatus(endless.url ? '' : 'End of results');
+    endlessStatus(endless.url ? "" : "End of results");
   }
 
   function stopEndless() {
-    if (endless.io) { endless.io.disconnect(); endless.io = null; }
-    if (endless.node) { endless.node.remove(); endless.node = null; }
+    if (endless.io) {
+      endless.io.disconnect();
+      endless.io = null;
+    }
+    if (endless.node) {
+      endless.node.remove();
+      endless.node = null;
+    }
   }
 
   // Appended pages stay in the DOM; only the tracking resets, so a fresh page
@@ -745,60 +902,74 @@
   }
 
   function applyDensity() {
-    const d = DESIGNS.find(x => x.id === state.design) || DESIGNS[0];
+    const d = DESIGNS.find((x) => x.id === state.design) || DESIGNS[0];
     const min = Math.round(d.min * state.density);
     const root = document.documentElement;
-    root.style.setProperty('--ygx-min', min + 'px');
+    root.style.setProperty("--ygx-min", min + "px");
   }
 
   function applyWiden() {
-    document.documentElement.toggleAttribute('data-ygx-widen', state.widen && state.enabled);
+    document.documentElement.toggleAttribute(
+      "data-ygx-widen",
+      state.widen && state.enabled,
+    );
   }
 
   // Gates the page-chrome restyle (sidebar, pagination) so that
   // "Restore original layout" puts everything back, not just the grid.
   function applyEnabledAttr() {
-    document.documentElement.toggleAttribute('data-ygx-on', state.enabled);
+    document.documentElement.toggleAttribute("data-ygx-on", state.enabled);
   }
 
   function applyTheme() {
-    document.documentElement.setAttribute('data-ygx-theme', state.theme);
+    document.documentElement.setAttribute("data-ygx-theme", state.theme);
   }
 
   // Hides Yupoo's own paginators, which endless scroll has taken over from.
   function applyEndlessAttr() {
-    document.documentElement.toggleAttribute('data-ygx-endless', state.endless && state.enabled);
+    document.documentElement.toggleAttribute(
+      "data-ygx-endless",
+      state.endless && state.enabled,
+    );
   }
 
   // Yupoo ships no "current" class for the sub-category row, and it sizes the
   // fold for its own 46px rows, so both are redone here for the pill layout.
   function syncSubcats() {
-    const wrap = document.querySelector('.categories__box-right-categories-wrap');
-    const inner = wrap && wrap.querySelector('.categories__box-right-categories');
+    const wrap = document.querySelector(
+      ".categories__box-right-categories-wrap",
+    );
+    const inner =
+      wrap && wrap.querySelector(".categories__box-right-categories");
     if (!inner) return;
 
     const here = (location.pathname.match(CATEGORY_HREF) || [])[1];
-    inner.querySelectorAll('.categories__box-right-category-item').forEach(a => {
-      const m = (a.getAttribute('href') || '').match(CATEGORY_HREF);
-      a.classList.toggle('ygx-here', !!here && !!m && m[1] === here);
-    });
+    inner
+      .querySelectorAll(".categories__box-right-category-item")
+      .forEach((a) => {
+        const m = (a.getAttribute("href") || "").match(CATEGORY_HREF);
+        a.classList.toggle("ygx-here", !!here && !!m && m[1] === here);
+      });
 
-    const toggle = wrap.querySelector('.categories__box-right-categories-toggle');
+    const toggle = wrap.querySelector(
+      ".categories__box-right-categories-toggle",
+    );
     if (!toggle) return;
     const clipped = inner.scrollHeight > inner.clientHeight + 1;
-    toggle.style.display = clipped || !wrap.classList.contains('is-fold') ? '' : 'none';
+    toggle.style.display =
+      clipped || !wrap.classList.contains("is-fold") ? "" : "none";
   }
 
   function setTheme(id) {
     state.theme = id;
-    store.set('theme', id);
+    store.set("theme", id);
     applyTheme();
     syncPanel();
   }
 
   function setDesign(id) {
     state.design = id;
-    store.set('design', id);
+    store.set("design", id);
     // Ahead of render(), which returns early on a page with nothing to scrape
     // and so never reaches its own applyDensity(). The album page's photo grid
     // reads --ygx-min directly and would otherwise keep the old design's width.
@@ -809,7 +980,7 @@
 
   function setEndless(on) {
     state.endless = on;
-    store.set('endless', on);
+    store.set("endless", on);
     applyEndlessAttr();
     if (on) startEndless();
     else stopEndless();
@@ -817,13 +988,18 @@
 
   function setEnabled(on) {
     state.enabled = on;
-    store.set('enabled', on);
-    lastSignature = '';
+    store.set("enabled", on);
+    lastSignature = "";
     applyEnabledAttr();
     applyEndlessAttr();
     applyWiden();
-    if (on) { render(true); startEndless(); }
-    else { teardown(); stopEndless(); }
+    if (on) {
+      render(true);
+      startEndless();
+    } else {
+      teardown();
+      stopEndless();
+    }
     syncPanel();
   }
 
@@ -833,58 +1009,63 @@
 
   function buildPanel() {
     if (panel) return;
-    panel = el('div', 'ygx-panel');
-    panel.id = 'ygx-panel';
+    panel = el("div", "ygx-panel");
+    panel.id = "ygx-panel";
     // Persisted like every other setting, rather than reopening each page.
-    panel.classList.toggle('is-collapsed', state.collapsed);
+    panel.classList.toggle("is-collapsed", state.collapsed);
 
-    const head = el('div', 'ygx-panel-head');
-    head.appendChild(el('span', 'ygx-panel-title', 'Yupoo Plus'));
-    const collapse = el('button', 'ygx-icon-btn', state.collapsed ? '+' : '−');
-    collapse.title = 'Collapse';
-    collapse.addEventListener('click', () => {
-      state.collapsed = panel.classList.toggle('is-collapsed');
-      store.set('collapsed', state.collapsed);
-      collapse.textContent = state.collapsed ? '+' : '−';
+    const head = el("div", "ygx-panel-head");
+    head.appendChild(el("span", "ygx-panel-title", "Yupoo Plus"));
+    const collapse = el("button", "ygx-icon-btn", state.collapsed ? "+" : "−");
+    collapse.title = "Collapse";
+    collapse.addEventListener("click", () => {
+      state.collapsed = panel.classList.toggle("is-collapsed");
+      store.set("collapsed", state.collapsed);
+      collapse.textContent = state.collapsed ? "+" : "−";
     });
     head.appendChild(collapse);
     panel.appendChild(head);
 
-    const bodyEl = el('div', 'ygx-panel-body');
+    const bodyEl = el("div", "ygx-panel-body");
 
-    const designs = el('div', 'ygx-designs');
-    DESIGNS.forEach(d => {
-      const b = el('button', 'ygx-design-btn', d.label);
+    const designs = el("div", "ygx-designs");
+    DESIGNS.forEach((d) => {
+      const b = el("button", "ygx-design-btn", d.label);
       b.dataset.design = d.id;
       b.title = d.hint;
-      b.addEventListener('click', () => setDesign(d.id));
+      b.addEventListener("click", () => setDesign(d.id));
       designs.appendChild(b);
     });
     bodyEl.appendChild(designs);
 
-    const themes = el('div', 'ygx-themes');
-    THEMES.forEach(t => {
-      const b = el('button', 'ygx-theme-btn', t.label);
+    const themes = el("div", "ygx-themes");
+    THEMES.forEach((t) => {
+      const b = el("button", "ygx-theme-btn", t.label);
       b.dataset.theme = t.id;
-      b.addEventListener('click', () => setTheme(t.id));
+      b.addEventListener("click", () => setTheme(t.id));
       themes.appendChild(b);
     });
     bodyEl.appendChild(themes);
 
-    const densRow = el('label', 'ygx-row');
-    densRow.appendChild(el('span', 'ygx-row-label', 'Card size'));
-    const range = el('input', 'ygx-range');
-    range.type = 'range';
-    range.min = '0.6';
-    range.max = '1.8';
-    range.step = '0.1';
+    const densRow = el("label", "ygx-row");
+    densRow.appendChild(el("span", "ygx-row-label", "Card size"));
+    const range = el("input", "ygx-range");
+    range.type = "range";
+    range.min = "0.6";
+    range.max = "1.8";
+    range.step = "0.1";
     range.value = String(state.density);
     // The webkit track is a two-stop gradient, so the fill point is a variable.
-    const paintRange = () => range.style.setProperty('--ygx-fill',
-      ((range.value - range.min) / (range.max - range.min) * 100).toFixed(2) + '%');
-    range.addEventListener('input', () => {
+    const paintRange = () =>
+      range.style.setProperty(
+        "--ygx-fill",
+        (((range.value - range.min) / (range.max - range.min)) * 100).toFixed(
+          2,
+        ) + "%",
+      );
+    range.addEventListener("input", () => {
       state.density = Number(range.value);
-      store.set('density', state.density);
+      store.set("density", state.density);
       applyDensity();
       paintRange();
     });
@@ -892,52 +1073,54 @@
     densRow.appendChild(range);
     bodyEl.appendChild(densRow);
 
-    const wideRow = el('label', 'ygx-row ygx-check');
-    const cb = el('input');
-    cb.type = 'checkbox';
+    const wideRow = el("label", "ygx-row ygx-check");
+    const cb = el("input");
+    cb.type = "checkbox";
     cb.checked = state.widen;
-    cb.addEventListener('change', () => {
+    cb.addEventListener("change", () => {
       state.widen = cb.checked;
-      store.set('widen', state.widen);
+      store.set("widen", state.widen);
       applyWiden();
     });
     wideRow.appendChild(cb);
-    wideRow.appendChild(el('span', 'ygx-row-label', 'Full-width page'));
+    wideRow.appendChild(el("span", "ygx-row-label", "Full-width page"));
     bodyEl.appendChild(wideRow);
 
-    const endRow = el('label', 'ygx-row ygx-check');
-    const endCb = el('input');
-    endCb.type = 'checkbox';
+    const endRow = el("label", "ygx-row ygx-check");
+    const endCb = el("input");
+    endCb.type = "checkbox";
     endCb.checked = state.endless;
     endCb.disabled = !ENDLESS_READY;
-    endCb.addEventListener('change', () => setEndless(endCb.checked));
+    endCb.addEventListener("change", () => setEndless(endCb.checked));
     endRow.appendChild(endCb);
-    endRow.appendChild(el('span', 'ygx-row-label', 'Endless scroll'));
+    endRow.appendChild(el("span", "ygx-row-label", "Endless scroll"));
     if (!ENDLESS_READY) {
-      endRow.classList.add('ygx-shelved');
-      endRow.title = 'WIP: loads pages correctly, but crashes long sessions.';
-      endRow.appendChild(el('span', 'ygx-note', 'WIP'));
+      endRow.classList.add("ygx-shelved");
+      endRow.title = "WIP: loads pages correctly, but crashes long sessions.";
+      endRow.appendChild(el("span", "ygx-note", "WIP"));
     }
     bodyEl.appendChild(endRow);
 
-    const toggle = el('button', 'ygx-toggle', '');
-    toggle.id = 'ygx-toggle';
-    toggle.addEventListener('click', () => setEnabled(!state.enabled));
+    const toggle = el("button", "ygx-toggle", "");
+    toggle.id = "ygx-toggle";
+    toggle.addEventListener("click", () => setEnabled(!state.enabled));
     bodyEl.appendChild(toggle);
 
     // Credit line, outside every block .is-disabled dims, so it survives a
     // restore. Both links open in a new tab rather than off the shop page.
     const creditLink = (text, href) => {
-      const a = el('a', 'ygx-credit-link', text);
+      const a = el("a", "ygx-credit-link", text);
       a.href = href;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
       return a;
     };
-    const credit = el('div', 'ygx-credit', 'Created by ');
-    credit.appendChild(creditLink('Noklef', 'https://github.com/Noklef'));
-    credit.appendChild(el('span', 'ygx-credit-sep', '|'));
-    credit.appendChild(creditLink('Source code', 'https://github.com/Noklef/yupoo-plus'));
+    const credit = el("div", "ygx-credit", "Created by ");
+    credit.appendChild(creditLink("Noklef", "https://github.com/Noklef"));
+    credit.appendChild(el("span", "ygx-credit-sep", "|"));
+    credit.appendChild(
+      creditLink("Source code", "https://github.com/Noklef/yupoo-plus"),
+    );
     bodyEl.appendChild(credit);
 
     panel.appendChild(bodyEl);
@@ -947,20 +1130,22 @@
 
   function syncPanel() {
     if (!panel) return;
-    panel.querySelectorAll('.ygx-design-btn').forEach(b => {
-      b.classList.toggle('is-active', b.dataset.design === state.design);
+    panel.querySelectorAll(".ygx-design-btn").forEach((b) => {
+      b.classList.toggle("is-active", b.dataset.design === state.design);
     });
-    panel.querySelectorAll('.ygx-theme-btn').forEach(b => {
-      b.classList.toggle('is-active', b.dataset.theme === state.theme);
+    panel.querySelectorAll(".ygx-theme-btn").forEach((b) => {
+      b.classList.toggle("is-active", b.dataset.theme === state.theme);
     });
-    const t = panel.querySelector('#ygx-toggle');
+    const t = panel.querySelector("#ygx-toggle");
     if (t) {
-      t.textContent = state.enabled ? 'Restore original layout' : 'Enable Yupoo Plus';
-      t.classList.toggle('is-off', !state.enabled);
+      t.textContent = state.enabled
+        ? "Restore original layout"
+        : "Enable Yupoo Plus";
+      t.classList.toggle("is-off", !state.enabled);
     }
     // A class, not inline styles: the dim value belongs in the stylesheet, and
     // this way the theme buttons dim with everything else.
-    panel.classList.toggle('is-disabled', !state.enabled);
+    panel.classList.toggle("is-disabled", !state.enabled);
   }
 
   /* ---- 5. Styles ------------------------------------------------------- */
@@ -2117,9 +2302,16 @@
   function injectCSS() {
     if (cssDone) return;
     cssDone = true;
-    try { if (typeof GM_addStyle === 'function') { GM_addStyle(CSS); return; } } catch { /* noop */ }
-    const s = document.createElement('style');
-    s.id = 'ygx-style';
+    try {
+      if (typeof GM_addStyle === "function") {
+        GM_addStyle(CSS);
+        return;
+      }
+    } catch {
+      /* noop */
+    }
+    const s = document.createElement("style");
+    s.id = "ygx-style";
     s.textContent = CSS;
     (document.head || document.documentElement).appendChild(s);
   }
@@ -2132,11 +2324,18 @@
     let t = 0;
     let first = 0;
     return function (...args) {
-      const run = () => { t = 0; first = 0; fn.apply(this, args); };
+      const run = () => {
+        t = 0;
+        first = 0;
+        fn.apply(this, args);
+      };
       const now = Date.now();
       if (!first) first = now;
       clearTimeout(t);
-      if (maxWait && now - first >= maxWait) { run(); return; }
+      if (maxWait && now - first >= maxWait) {
+        run();
+        return;
+      }
       t = setTimeout(run, ms);
     };
   }
@@ -2144,23 +2343,43 @@
   // The observer is what picks up a late-arriving grid, so it is installed
   // unconditionally rather than behind a card check that may never pass.
   function observeDom() {
-    const reflow = debounce(() => { render(false); syncSubcats(); }, 250, 1500);
+    const reflow = debounce(
+      () => {
+        render(false);
+        syncSubcats();
+      },
+      250,
+      1500,
+    );
     new MutationObserver((muts) => {
       for (const m of muts) {
         const t = m.target;
-        if (t && t.closest && (t.closest('.ygx-root') || t.closest('.ygx-panel'))) continue;
-        if (m.addedNodes.length || m.removedNodes.length) { reflow(); return; }
+        if (
+          t &&
+          t.closest &&
+          (t.closest(".ygx-root") || t.closest(".ygx-panel"))
+        )
+          continue;
+        if (m.addedNodes.length || m.removedNodes.length) {
+          reflow();
+          return;
+        }
       }
     }).observe(document.body, { childList: true, subtree: true });
 
     // Capture on document, not window: Yupoo scrolls <body> as an overflow
     // container, and scroll does not bubble, so a window listener never fires.
-    document.addEventListener('scroll', () => { endless.armed = true; },
-      { passive: true, capture: true });
+    document.addEventListener(
+      "scroll",
+      () => {
+        endless.armed = true;
+      },
+      { passive: true, capture: true },
+    );
 
     // Measured, not styled, so the sub-category fold has to be re-measured on
     // any width change or the More toggle keeps its boot-time visibility.
-    window.addEventListener('resize', debounce(syncSubcats, 150, 600));
+    window.addEventListener("resize", debounce(syncSubcats, 150, 600));
 
     let lastUrl = location.href;
     setInterval(() => {
@@ -2169,9 +2388,13 @@
       // Torn down now rather than after the settle delay, so the old page's
       // cards never sit over the new one.
       teardown();
-      lastSignature = '';
+      lastSignature = "";
       resetEndless();
-      setTimeout(() => { render(true); syncSubcats(); startEndless(); }, 400);
+      setTimeout(() => {
+        render(true);
+        syncSubcats();
+        startEndless();
+      }, 400);
     }, 700);
   }
 
